@@ -1,0 +1,7 @@
+**/__pycache__/
+
+.theia/
+venv/
+
+config.ini
+docker-compose.yml

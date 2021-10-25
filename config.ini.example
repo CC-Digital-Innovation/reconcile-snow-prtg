@@ -1,0 +1,37 @@
+[local]
+log_level = DEBUG
+sys_log_host = host.com
+sys_log_port = 1234
+mode = dev
+; max number of threads to run device checks on all companies and their sites
+max_threads = 10
+; number of retries to run device check
+attempts = 3
+
+[snow]
+snow_instance = snowinstance
+api_user = user
+api_password = **********
+api_key = **********
+; NOTE no trailing forward slash(/)
+base_url = https://snowinstance.com
+
+[prtg]
+; NOTE no trailing forward slash(/)
+base_url = http://prtginstance.com
+username = user
+; password can be used in place of passhash: replace 'passhash' with 'password'
+passhash = **********
+; id of template for group duplication
+template_group = 1234
+; id of template for device duplication
+template_device = 1235
+; id of template for sensor duplication
+template_sensor = 1236
+
+[email]
+server = smtp.server.com
+port = 1234
+to = to@email.com
+from = from@email.com
+password = **********

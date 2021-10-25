@@ -1,0 +1,13 @@
+version: '3.7'
+services:
+  reconcile-snow-prtg:
+    build: .
+    networks:
+      - caddy
+    labels:
+      caddy: example.com
+      caddy.reverse_proxy: "{{upstreams 80}}"
+    restart: always
+networks:
+  caddy:
+    external: true

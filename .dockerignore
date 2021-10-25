@@ -1,0 +1,7 @@
+.git/
+.gitignore
+venv/
+.vscode/
+.theia/
+__pycache__/
+README.md
