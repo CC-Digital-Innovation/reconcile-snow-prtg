@@ -34,9 +34,9 @@ def init_prtg(companyName: str, siteName: str, probeId: int, prtgUrl: Optional[s
         try:
             prtg_instance = PRTGInstance(prtgUrl, username, password, templateGroup, templateDevice, isPasshash)
         except ValueError as e:
-            raise HTTPException(status_code=401, detail=e)
+            raise HTTPException(status_code=401, detail=str(e))
     else:
-        logger.info('No parameters for a prtg instance. Using default instance from config.')
+        logger.info('No parameters for a PRTG instance. Using default instance from config.')
         prtg_instance = PRTGInstance(config['prtg']['base_url'], config['prtg']['username'], config['prtg']['passhash'], config['prtg']['template_group'], config['prtg']['template_device'], True)
     try:
         response = init_prtg_from_snow(prtg_instance, companyName, siteName, probeId)
@@ -55,22 +55,24 @@ def reconcile_company(companyName: str, siteName: str, prtgUrl: Optional[str]=No
         try:
             prtg_instance = PRTGInstance(prtgUrl, username, password, None, None, isPasshash)
         except ValueError as e:
-            raise HTTPException(status_code=401, detail=e)
+            raise HTTPException(status_code=401, detail=str(e))
     else:
-        logger.info('No parameters for a prtg instance. Using default instance from config.')
+        logger.info('No parameters for a PRTG instance. Using default instance from config.')
         prtg_instance = PRTGInstance(config['prtg']['base_url'], config['prtg']['username'], config['prtg']['passhash'], config['prtg']['template_group'], config['prtg']['template_device'], True)
     try:
         errors = compare_snow_prtg.compare_with_attempts(prtg_instance, companyName, siteName)
-        if errors:
-            if errors == -1:
-                raise HTTPException(status_code=422, detail=f'No devices found for company {companyName} at {siteName}.')
-            else:
-                return f'Successfully checked company {companyName} at {siteName} with {errors} errors found. Report will be sent out momentarily.'
-        else:
-            raise HTTPException(status_code=400, detail='An error has occurred. Failed to check.')
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f'Could not find PRTG probe of {companyName} at {siteName}')
     except Exception as e:
         logger.exception(f'Exception: {e}')
-        raise HTTPException(status_code=400, detail='An error has occurred. Failed to check.')
+        raise HTTPException(status_code=500, detail='An error has occurred. Failed to check.')
+    else:
+        if errors:
+            return f'Successfully checked company {companyName} at {siteName} with {errors} errors found. Report will be sent out momentarily.'
+        elif errors == 0:
+            return f'Successfully checked company {companyName} at {siteName} with {errors} errors. No report created.'
+        else:
+            raise HTTPException(status_code=400, detail=f'No PRTG managed devices found.')
 
 @logger.catch
 @app.get('/reconcileAll')
@@ -79,9 +81,9 @@ def reconcile_all(prtgUrl: Optional[str]=None, username: Optional[str]=None, pas
         try:
             prtg_instance = PRTGInstance(prtgUrl, username, password, None, None, isPasshash)
         except ValueError as e:
-            raise HTTPException(status_code=401, detail=e)
+            raise HTTPException(status_code=401, detail=str(e))
     else:
-        logger.info('No parameters for a prtg instance. Using default instance from config.')
+        logger.info('No parameters for a PRTG instance. Using default instance from config.')
         prtg_instance = PRTGInstance(config['prtg']['base_url'], config['prtg']['username'], config['prtg']['passhash'], config['prtg']['template_group'], config['prtg']['template_device'], True)
     try:
         compare_snow_prtg.compare_all(prtg_instance)
