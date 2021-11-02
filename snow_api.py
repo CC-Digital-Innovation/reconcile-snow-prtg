@@ -116,6 +116,7 @@ def get_cis_filtered(company_name, location, category, stage):
         .AND().field('u_category').equals(category)
         .AND().field('u_used_for').equals(stage)
         .AND().field('u_cc_type').not_equals('Out of Scope')
+        .AND().field('u_prtg_implementation').equals('true')
     )
     response = cis.get(query=query)
     return response.all()
@@ -132,11 +133,9 @@ def get_cis_by_site(company_name, site_name):
         .OR().field('install_status').equals('101')     # Active
         .OR().field('install_status').equals('107')     # Duplicate installed
         .AND().field('location.name').equals(site_name)
-        .AND().field('u_category').is_not_empty()
         .AND().field('u_cc_type').not_equals('Out of Scope')
-        .AND().field('u_used_for').is_not_empty()
+        .AND().field('u_prtg_implementation').equals('true')
     )
-    #TODO query PRTG managed field
     response = cis.get(query=query)
     return response.all()
 
