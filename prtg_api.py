@@ -5,7 +5,6 @@ from enum import Enum
 
 import requests
 from loguru import logger
-from requests.models import HTTPError
 
 class PRTGInstance:
     def __init__(self, url, username, password, template_group, template_device, is_passhash=False):
@@ -36,8 +35,9 @@ class PRTGInstance:
         return response.text
 
     def get_probe_id(self, company_name, site_name):
+        # possible stale data using referenced sensortree
         name = f'[{company_name}] {site_name}'
-        tree = ET.fromstring(self.get_sensortree())
+        tree = ET.fromstring(self.sensortree)
         groups = []
         groups.extend(tree.iter('group'))
         groups.extend(tree.iter('probenode'))
@@ -46,7 +46,7 @@ class PRTGInstance:
                 return element.get('id')
 
     def get_obj_status(self, id, property):
-        # includes some property-like properties like parent ID
+        # different from get_obj_property, includes some property-like properties like parent ID
         url = self.url + '/api/getobjectstatus.htm'
         params = {
             'username': self.username,
