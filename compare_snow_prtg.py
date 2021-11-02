@@ -1,42 +1,19 @@
 import configparser
-import csv
 import json
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from operator import itemgetter
 from pathlib import PurePath
 
 import requests
 from loguru import logger
 
 import email_report
-import prtg_api
 import snow_api
 
 # read and parse config file
 config = configparser.ConfigParser()
 config_path = PurePath(__file__).parent / 'config.ini'
 config.read(config_path)
-
-def get_csv_cis(file_name):
-    '''Returns a list of dictionaries of the csv file'''
-    with open(file_name) as stream:
-        dict_reader = csv.DictReader(stream)
-        return [row for row in dict_reader]
-
-def create_file(company_name, group_id):
-    '''Create csv file of snow and prtg devices to compare manually'''
-    # remove whitespace and PascalCase
-    file_name = ''.join([subname.capitalize() for subname in company_name.split()])
-    with open(f'{file_name}-compare.csv', 'w', newline='') as csvfile:
-        writer = csv.writer(csvfile)
-        writer.writerow(['PRTG Match', 'SNOW Name', 'SNOW URL', 'PRTG Name', 'PRTG URL', 'PRTG ID'])
-        snow_cis = [(ci['name'], snow_api.ci_url(ci['sys_id'])) for ci in snow_api.get_cis(company_name)]
-        snow_cis.sort(key=itemgetter(0))
-        prtg_list = [(device['name'], prtg_api.device_url(device['objid'])) for device in prtg_api.get_devices(group_id)]
-        prtg_list.sort(key=itemgetter(0))
-        for snow_ci, prtg_device in zip(snow_cis, prtg_list):
-            writer.writerow(['', snow_ci[0], snow_ci[1], prtg_device[0], prtg_device[1], prtg_device[2]])
 
 class MismatchBuilder():
     def __init__(self, prtg_device, prtg_link, snow_device, snow_link):
@@ -68,32 +45,7 @@ class MismatchBuilder():
             'snow': snow
         }
 
-def check_snow_ci(company_name, file_name):
-    '''Validate snow configuration items from csv file'''
-    # get snow ci
-    snow_cis = snow_api.get_cis(company_name)
-    # get csv ci
-    csv_cis = get_csv_cis(file_name)
-    
-    # create report on mismatches
-    missing_csv_ci = []
-    found = False
-    # compare ci in snow from csv
-    for csv_ci in csv_cis:
-        for i, snow_ci in enumerate(snow_cis):
-            if csv_ci['name'].strip().lower() == snow_ci['name'].strip().lower():
-                found = True
-                snow_cis.pop(i)
-                break
-        if not found:
-            logger.info('SNOW is missing device: ' + csv_ci['name'])
-            missing_csv_ci.append(csv_ci)
-        else:
-            found = False
-    # TODO consider duplicate ci in either list
-    return missing_csv_ci
-
-def compare(company_name, site_name, group_id=None):
+def compare(prtg_instance, company_name, site_name, group_id=None):
     '''Compares SNOW and PRTG devices
     
     Returns
@@ -109,13 +61,13 @@ def compare(company_name, site_name, group_id=None):
     if group_id == -1:
         logger.warning(f'Could not find PRTG probe of company {company_name} at {site_name}')
     elif not group_id:
-        group_id = prtg_api.get_probe_id(company_name, site_name)
+        group_id = prtg_instance.get_probe_id(company_name, site_name)
         if not group_id:
             logger.warning(f'Could not find PRTG probe of company {company_name} at {site_name}')
         else:
-            prtg_devices = prtg_api.get_devices(group_id)
+            prtg_devices = prtg_instance.get_devices(group_id)
     else:
-        prtg_devices = prtg_api.get_devices(group_id)
+        prtg_devices = prtg_instance.get_devices(group_id)
 
     if not snow_cis and not prtg_devices:
         return -1
@@ -162,9 +114,9 @@ def compare(company_name, site_name, group_id=None):
             device['host_name'] = names[0]
             device['manufacturer'] = names[1]
             device['model_id'] = ' '.join(names[2:])
-            device['category'] = prtg_api.get_obj_property(device['parentid'], 'name')
-            stage_id = prtg_api.get_obj_status(device['parentid'], 'parentid')
-            device['stage'] = prtg_api.get_obj_property(stage_id, 'name')
+            device['category'] = prtg_instance.get_obj_property(device['parentid'], 'name')
+            stage_id = prtg_instance.get_obj_status(device['parentid'], 'parentid')
+            device['stage'] = prtg_instance.get_obj_property(stage_id, 'name')
             try:
                 grouped_prtg[device['manufacturer']].append(device)
             except KeyError:
@@ -183,7 +135,7 @@ def compare(company_name, site_name, group_id=None):
                 if not device:
                     continue
                 if ' '.join((ci['u_host_name'], ci['manufacturer'], ci['model_id'])) == device['name']:   
-                    builder = MismatchBuilder(prtg_device=device['name'], prtg_link=prtg_api.device_url(device['objid']),
+                    builder = MismatchBuilder(prtg_device=device['name'], prtg_link=prtg_instance.device_url(device['objid']),
                                               snow_device=ci['name'], snow_link=snow_api.ci_url(ci['sys_id']))
                     # check all other fields
 
@@ -211,7 +163,7 @@ def compare(company_name, site_name, group_id=None):
                         builder.add('Location', device['location_raw'], ', '.join((s_street, s_city, s_state, s_country)))
 
                     # ip address
-                    p_address = prtg_api.get_obj_property(device['objid'], 'host')
+                    p_address = prtg_instance.get_obj_property(device['objid'], 'host')
                     builder.check('IP Address', p_address, ci['ip_address'])
 
                     # tags
@@ -222,7 +174,7 @@ def compare(company_name, site_name, group_id=None):
                     # builder.check('Priority', device['priority'], ci['u_priority'])
 
                     # serviceurl
-                    builder.check('Service URL', prtg_api.get_obj_property(device['objid'], 'serviceurl'), snow_api.ci_url(ci['sys_id']))
+                    builder.check('Service URL', prtg_instance.get_obj_property(device['objid'], 'serviceurl'), snow_api.ci_url(ci['sys_id']))
 
                     #TODO credentials...
 
@@ -246,7 +198,7 @@ def compare(company_name, site_name, group_id=None):
         if group:
             for device in group:
                 if device:
-                    combined_prtg_list.append((device['name'], prtg_api.device_url(device['objid'])))
+                    combined_prtg_list.append((device['name'], prtg_instance.device_url(device['objid'])))
     logger.debug(json.dumps(combined_prtg_list, indent=4))
     logger.debug('Devices with mismatched fields:')
     logger.debug(json.dumps(mismatch, indent=4))
@@ -256,18 +208,19 @@ def compare(company_name, site_name, group_id=None):
     num_mismatch = sum((len(m['fields']) for m in mismatch))
     return len(combined_prtg_list) + len(combined_snow_list) + num_mismatch
 
-def compare_with_attempts(company_name, site_name, group_id=None, attempts=config['local'].getint('attempts')):
+def compare_with_attempts(prtg_instance, company_name, site_name, group_id=None, attempts=config['local'].getint('attempts')):
     for attempt in range(attempts):
         try:
-            return compare(company_name, site_name, group_id)
+            return compare(prtg_instance, company_name, site_name, group_id)
         except (requests.exceptions.ConnectionError, requests.exceptions.ConnectTimeout):
             logger.warning(f'Failed to connect for company {company_name} at {site_name}. Retrying {attempt + 1}...')
     else:
         logger.warning(f'Failed to get company {company_name} at {site_name} after {attempts} attempts.')
 
-def compare_all():
+def compare_all(prtg_instance):
     with ThreadPoolExecutor(max_workers=config['local'].getint('max_threads')) as executor:
-        tree = ET.fromstring(prtg_api.get_sensortree())
+        # save local sensortree to avoid overloading prtg with multiple api calls
+        tree = ET.fromstring(prtg_instance.sensortree)
         groups = []
         groups.extend(tree.iter('group'))
         groups.extend(tree.iter('probenode'))
@@ -281,7 +234,7 @@ def compare_all():
                         d_id = element.get('id')
                         break
                 if d_id:
-                    compare_futures[executor.submit(compare_with_attempts, company['name'], site['name'], d_id)] = {'company': company['name'], 'site': site['name']}
+                    compare_futures[executor.submit(compare_with_attempts, prtg_instance, company['name'], site['name'], d_id)] = {'company': company['name'], 'site': site['name']}
                 else:
                     logger.warning(f'Cannot find {company["name"]}] {site["name"]}')
         for future in as_completed(compare_futures):
