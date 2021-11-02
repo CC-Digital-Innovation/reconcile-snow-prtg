@@ -58,10 +58,10 @@ _Names in parentheses represent its ServiceNow internal name. If name is missing
 Download code from GitHub:
 
 ```bash
-git clone https://github.com/CC-Digital-Innovation/
+git clone https://github.com/CC-Digital-Innovation/reconcile-snow-prtg.git
 ```
 
-* or download the [zip]()
+* or download the [zip](https://github.com/CC-Digital-Innovation/reconcile-snow-prtg/archive/refs/heads/main.zip)
 
 ### Usage
 
