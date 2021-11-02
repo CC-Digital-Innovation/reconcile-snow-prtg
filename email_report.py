@@ -37,21 +37,21 @@ def send_digest(digest):
 def digest_to_html(digest):
     good = []
     bad = []
-    unknown = []
+    error = []
     for report in digest:
         #TODO switch to EAFP when cmdb is more reliable
-        if 'result' in digest[report] and digest[report]['result'] is not None:
-            if digest[report]['result'] > 0:
+        if 'result' in report:
+            if report['result']:
                 bad.append(report)
-            elif digest[report]['result'] == 0:
+            elif report['result'] == 0:
                 good.append(report)
-            elif 'unknown' in digest[report]:
-                unknown.append(report)
+        elif 'error' in report:
+            error.append(report)
     builder = [f'''
         <html>
         <head>
             <style>
-                caption {{ font-weight: bold; font-size: 1.2em; }}
+                caption {{ font-weight: bold; }}
                 table {{ width: 100%; }}
                 table, th, td {{ border: 1px solid black; border-collapse: collapse; }}
                 th, td {{ padding: 5px; }}
@@ -62,28 +62,25 @@ def digest_to_html(digest):
         <caption>Reconcile Report of All Devices</caption>
         <thead>
             <tr>
-                <th style="border-top: 0; border-left: 0;"></th>
                 <th>&#9989; No Issues ({len(good)})</th>
                 <th>&#10060; Missing/Mismatches ({len(bad)})</th>
-                <th>&#10071; Failed to Check ({len(unknown)})</th>
+                <th>&#10071; Failed to Check ({len(error)})</th>
             </tr>
         </thead>
         <tbody>
         ''']
-    for i, (g, b, u) in enumerate(zip_longest(good, bad, unknown), start=1):
-        builder.append(f'''
-            <tr>
-                <td>{i}.</td>''')
+    for g, b, e in zip_longest(good, bad, error):
+        builder.append('<tr>')
         if g:
-            builder.append(f'<td>[{digest[g]["company"]}] {digest[g]["site"]}</td>')
+            builder.append(f'<td>[{g["company"]}] {g["site"]}</td>')
         else:
             builder.append(f'<td></td>')
         if b:
-            builder.append(f'<td>[{digest[b]["company"]}] {digest[b]["site"]} ({digest[b]["result"]})</td>')
+            builder.append(f'<td>[{b["company"]}] {b["site"]} ({b["result"]})</td>')
         else:
             builder.append(f'<td></td>')
-        if u:
-            builder.append(f'<td>[{digest[u]["company"]}] {digest[u]["site"]}</td>')
+        if e:
+            builder.append(f'<td>[{e["company"]}] {e["site"]}</td>')
         else:
             builder.append(f'<td></td>')
         builder.append('</tr>')
@@ -104,22 +101,22 @@ def report_to_html(company_name, site_name, missing_in_prtg, missing_in_snow, mi
         <html>
         <head>
             <style>
-                caption { font-weight: bold; font-size: 1.2em; }
+                caption { font-weight: bold; }
                 table, th, td { border: 1px solid black; border-collapse: collapse; }
                 th, td { padding: 5px; }
             </style>
         </head>
         <body>
         ''']
-    builder.append(f'<h2>Checking devices from {company_name} at {site_name}</h2>')
+    builder.append(f'<h1>{company_name} at {site_name}</h1>')
     if missing_in_prtg:
-        builder.append('<h3>Missing devices in PRTG:</h3>')
+        builder.append('<h2>Missing devices in PRTG:</h2>')
         builder.append(tabulate(missing_in_prtg, headers=['Device Name', 'Link'], tablefmt='html'))
     if missing_in_snow:
-        builder.append('<h3>Missing devices in SNOW:</h3>')
+        builder.append('<h2>Missing devices in SNOW:</h2>')
         builder.append(tabulate(missing_in_snow, headers=['Device Name', 'Link'], tablefmt='html'))
     if mismatch:
-        builder.append('<h3>Devices with mismatched fields:</h3>')
+        builder.append('<h2>Devices with mismatched fields:</h2>')
         for device in mismatch:
             builder.append(f'''
                 <table>
@@ -182,13 +179,13 @@ def init_to_html(company_name, site_name, created_list, missing_list):
         <html>
         <head>
             <style>
-                caption {{ font-weight: bold; font-size: 1.2em; }}
+                caption {{ font-weight: bold; }}
                 table, th, td {{ border: 1px solid black; border-collapse: collapse; }}
                 th, td {{ padding: 5px; }}
             </style>
         </head>
         <body>
-            <h2>Successfully created the PRTG structure for {company_name} at {site_name} with populated fields.</h2>
+            <h1>Successfully created the PRTG structure for {company_name} at {site_name}.</h1>
             <table>
             <caption>Devices Added to PRTG</caption>
             <thead>
@@ -208,8 +205,9 @@ def init_to_html(company_name, site_name, created_list, missing_list):
             </tr>''')
     builder.append('''
         </tbody>
-        </table>
-        <h3 style="margin-top: 1 em;">Missing Optional Fields</h3>''')
+        </table>''')
+    if missing_list:
+        builder.append('<h2>Missing Optional Fields</h2>')
     for missing in missing_list:
         builder.append(f'''
             <h4><a href="{missing["link"]}">{missing["name"]}</a></h4>
