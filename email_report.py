@@ -18,17 +18,21 @@ sender_email = config['email']['from']
 
 context = ssl.create_default_context()
 
-def send_digest(digest):
-    message = digest_to_html(digest)
+def send_email(subject, message):
     with smtplib.SMTP_SSL(smtp_server, port, context=context) as server:
         for receiver in config['email']['to'].split(','):
             msg = EmailMessage()
-            msg['Subject'] = 'Digest Report'
+            msg['Subject'] = subject
             msg['From'] = sender_email
             msg['To'] = receiver
             msg.add_alternative(message, subtype='html')
             server.login(sender_email, password)
             server.send_message(msg)
+
+def send_digest(digest):
+    message = digest_to_html(digest)
+    subject = 'Digest Report'
+    send_email(subject, message)
 
 def digest_to_html(digest):
     good = []
@@ -58,6 +62,7 @@ def digest_to_html(digest):
         <caption>Reconcile Report of All Devices</caption>
         <thead>
             <tr>
+                <th style="border-top: 0; border-left: 0;"></th>
                 <th>&#9989; No Issues ({len(good)})</th>
                 <th>&#10060; Missing/Mismatches ({len(bad)})</th>
                 <th>&#10071; Failed to Check ({len(unknown)})</th>
@@ -65,20 +70,22 @@ def digest_to_html(digest):
         </thead>
         <tbody>
         ''']
-    for g, b, u in zip_longest(good, bad, unknown):
-        builder.append(f'<tr>')
+    for i, (g, b, u) in enumerate(zip_longest(good, bad, unknown), start=1):
+        builder.append(f'''
+            <tr>
+                <td>{i}.</td>''')
         if g:
             builder.append(f'<td>[{digest[g]["company"]}] {digest[g]["site"]}</td>')
         else:
-            builder.append(f'<td>&nbsp;</td>')
+            builder.append(f'<td></td>')
         if b:
             builder.append(f'<td>[{digest[b]["company"]}] {digest[b]["site"]} ({digest[b]["result"]})</td>')
         else:
-            builder.append(f'<td>&nbsp;</td>')
+            builder.append(f'<td></td>')
         if u:
             builder.append(f'<td>[{digest[u]["company"]}] {digest[u]["site"]}</td>')
         else:
-            builder.append(f'<td>&nbsp;</td>')
+            builder.append(f'<td></td>')
         builder.append('</tr>')
     builder.append('''
         </tbody>
@@ -89,21 +96,15 @@ def digest_to_html(digest):
 
 def send_report(company_name, site_name, missing_in_prtg, missing_in_snow, mismatch):
     message = report_to_html(company_name, site_name, missing_in_prtg, missing_in_snow, mismatch)
-    with smtplib.SMTP_SSL(smtp_server, port, context=context) as server:
-        for receiver in config['email']['to'].split(','):
-            msg = EmailMessage()
-            msg['Subject'] = f'Reconcile Report - {company_name} at {site_name}'
-            msg['From'] = sender_email
-            msg['To'] = receiver
-            msg.add_alternative(message, subtype='html')
-            server.login(sender_email, password)
-            server.send_message(msg)
+    subject = f'Reconcile Report - {company_name} at {site_name}'
+    send_email(subject, message)
 
 def report_to_html(company_name, site_name, missing_in_prtg, missing_in_snow, mismatch):
     builder = ['''
         <html>
         <head>
             <style>
+                caption { font-weight: bold; font-size: 1.2em; }
                 table, th, td { border: 1px solid black; border-collapse: collapse; }
                 th, td { padding: 5px; }
             </style>
@@ -114,13 +115,9 @@ def report_to_html(company_name, site_name, missing_in_prtg, missing_in_snow, mi
     if missing_in_prtg:
         builder.append('<h3>Missing devices in PRTG:</h3>')
         builder.append(tabulate(missing_in_prtg, headers=['Device Name', 'Link'], tablefmt='html'))
-    else:
-        builder.append('<h3>No devices missing in PRTG!</h3>')
     if missing_in_snow:
         builder.append('<h3>Missing devices in SNOW:</h3>')
         builder.append(tabulate(missing_in_snow, headers=['Device Name', 'Link'], tablefmt='html'))
-    else:
-        builder.append('<h3>No devices missing in SNOW!</h3>')
     if mismatch:
         builder.append('<h3>Devices with mismatched fields:</h3>')
         for device in mismatch:
@@ -145,7 +142,80 @@ def report_to_html(company_name, site_name, missing_in_prtg, missing_in_snow, mi
             builder.append('''
                 </tbody>
                 </table>''')
-    else:
-        builder.append('<h3>No mismatches found!</h3>')
+    builder.append('</body></html>')
+    return ''.join(builder)
+
+def send_missing_list(company_name, site_name, missing_list):
+    message = missing_fields_to_html(company_name, site_name, missing_list)
+    subject = 'Couldn\'t Initialize PRTG'
+    send_email(subject, message)
+
+def missing_fields_to_html(company_name, site_name, missing_list):
+    builder = ['''
+        <html>
+        <head>
+        </head>
+        <body>
+        ''']
+    builder.append(f'''
+        <h2>Unable to initialize PRTG for {company_name} at {site_name} because required fields are missing. Please fix the issues and retry.</h2>
+        <p style="color: red;">*Required</p>''')
+    for missing in missing_list:
+        builder.append(f'''
+            <h4><a href="{missing["link"]}">{missing["name"]}</a></h4>
+            <ul>''')
+        for field in missing['errors']:
+            builder.append(f'<li><span style="color: red;">*{field}</span></li>')
+        for field in missing['warnings']:
+            builder.append(f'<li>{field}</li>')
+        builder.append('</ul>')
+    builder.append('</body></html>')
+    return ''.join(builder)
+
+def send_success_init_prtg(company_name, site_name, created_list, missing_list):
+    message = init_to_html(company_name, site_name, created_list, missing_list)
+    subject = 'Successfully Initialized PRTG Structure.'
+    send_email(subject, message)
+
+def init_to_html(company_name, site_name, created_list, missing_list):
+    builder = [f'''
+        <html>
+        <head>
+            <style>
+                caption {{ font-weight: bold; font-size: 1.2em; }}
+                table, th, td {{ border: 1px solid black; border-collapse: collapse; }}
+                th, td {{ padding: 5px; }}
+            </style>
+        </head>
+        <body>
+            <h2>Successfully created the PRTG structure for {company_name} at {site_name} with populated fields.</h2>
+            <table>
+            <caption>Devices Added to PRTG</caption>
+            <thead>
+                <tr>
+                    <th style="border-top: 0; border-left: 0;"></th>
+                    <th>PRTG Name</th>
+                    <th>SNOW Name</th>
+                </tr>
+            </thead>
+            <tbody>''']
+    for i, device in enumerate(created_list, start=1):
+        builder.append(f'''
+            <tr>
+                <td>{i}.</td>
+                <td><a href="{device['prtg_link']}">{device['prtg']}</a></td>
+                <td><a href="{device['snow_link']}">{device['snow']}</a></td>
+            </tr>''')
+    builder.append('''
+        </tbody>
+        </table>
+        <h3 style="margin-top: 1 em;">Missing Optional Fields</h3>''')
+    for missing in missing_list:
+        builder.append(f'''
+            <h4><a href="{missing["link"]}">{missing["name"]}</a></h4>
+            <ul>''')
+        for field in missing['warnings']:
+            builder.append(f'<li>{field}</li>')
+        builder.append('</ul>')
     builder.append('</body></html>')
     return ''.join(builder)
