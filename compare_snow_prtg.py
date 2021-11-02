@@ -1,7 +1,6 @@
 import configparser
 import json
-import xml.etree.ElementTree as ET
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import time
 from pathlib import PurePath
 
 import requests
@@ -45,32 +44,39 @@ class MismatchBuilder():
             'snow': snow
         }
 
-def compare(prtg_instance, company_name, site_name, group_id=None):
+def compare(prtg_instance, company_name, site_name):
     '''Compares SNOW and PRTG devices
     
     Returns
     -------
     int
-        Number of issues. -1 return value means
-        company and/or site could not be found
+        Number of issues
+
+    None
+        No devices managed by prtg
+
+    Raises
+    ------
+    ValueError
+        Could not find PRTG probe
     '''
     # get snow devices
     snow_cis = snow_api.get_cis_by_site(company_name, site_name)
     # get prtg devices
-    prtg_devices = None
-    if group_id == -1:
+    group_id = prtg_instance.get_probe_id(company_name, site_name)
+    if not group_id:
         logger.warning(f'Could not find PRTG probe of company {company_name} at {site_name}')
-    elif not group_id:
-        group_id = prtg_instance.get_probe_id(company_name, site_name)
-        if not group_id:
-            logger.warning(f'Could not find PRTG probe of company {company_name} at {site_name}')
-        else:
-            prtg_devices = prtg_instance.get_devices(group_id)
+        prtg_devices = None
     else:
         prtg_devices = prtg_instance.get_devices(group_id)
 
+    # not prtg managed
     if not snow_cis and not prtg_devices:
-        return -1
+        return
+
+    # prtg managed devices exist but probe could not be found
+    if snow_cis and prtg_devices is None:
+        raise ValueError(f'Could not find PRTG probe of company {company_name} at {site_name}')
 
     mismatch = []
     prtg_name_errors = []
@@ -208,41 +214,32 @@ def compare(prtg_instance, company_name, site_name, group_id=None):
     num_mismatch = sum((len(m['fields']) for m in mismatch))
     return len(combined_prtg_list) + len(combined_snow_list) + num_mismatch
 
-def compare_with_attempts(prtg_instance, company_name, site_name, group_id=None, attempts=config['local'].getint('attempts')):
+def compare_with_attempts(prtg_instance, company_name, site_name, attempts=config['local'].getint('attempts')):
     for attempt in range(attempts):
         try:
-            return compare(prtg_instance, company_name, site_name, group_id)
+            return compare(prtg_instance, company_name, site_name)
         except (requests.exceptions.ConnectionError, requests.exceptions.ConnectTimeout):
             logger.warning(f'Failed to connect for company {company_name} at {site_name}. Retrying {attempt + 1}...')
+            time.sleep(3)
     else:
         logger.warning(f'Failed to get company {company_name} at {site_name} after {attempts} attempts.')
+        raise ConnectionError(f'Failed to get company {company_name} at {site_name} after {attempts} attempts.')
 
 def compare_all(prtg_instance):
-    with ThreadPoolExecutor(max_workers=config['local'].getint('max_threads')) as executor:
-        # save local sensortree to avoid overloading prtg with multiple api calls
-        tree = ET.fromstring(prtg_instance.sensortree)
-        groups = []
-        groups.extend(tree.iter('group'))
-        groups.extend(tree.iter('probenode'))
-        compare_futures = {}
-        for company in snow_api.get_companies():
-            for site in snow_api.get_company_locations(company['name']):
-                d_id = -1
-                for element in groups:
-                    name = f'[{company["name"]}] {site["name"]}'
-                    if element.find('name').text == name:
-                        d_id = element.get('id')
-                        break
-                if d_id:
-                    compare_futures[executor.submit(compare_with_attempts, prtg_instance, company['name'], site['name'], d_id)] = {'company': company['name'], 'site': site['name']}
-                else:
-                    logger.warning(f'Cannot find {company["name"]}] {site["name"]}')
-        for future in as_completed(compare_futures):
+    results = []
+    for company in snow_api.get_companies():
+        for site in snow_api.get_company_locations(company['name']):
+            result = {
+                'company': company['name'],
+                'site': site['name']
+            }
             try:
-                result = future.result()
+                result['result'] = compare_with_attempts(prtg_instance, company['name'], site['name'])
+            except (ConnectionError, ValueError) as e:
+                result['error'] = str(e)
             except Exception as e:
-                logger.exception(f'Exception: {e}')
-                compare_futures[future]['unknown'] = 'Internal Error'
-            else:
-                compare_futures[future]['result'] = result
-        email_report.send_digest(compare_futures)
+                logger.exception(e)
+                result['error'] = 'Internal Error'
+            finally:
+                results.append(result)
+    email_report.send_digest(results)
