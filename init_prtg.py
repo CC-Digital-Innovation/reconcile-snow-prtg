@@ -12,8 +12,21 @@ config_path = PurePath(__file__).parent / 'config.ini'
 config.read(config_path)
 
 def check_snow_fields(company_name, site_name):
-    '''Check cmdb fields and warns if any are missing'''
+    '''Check cmdb fields and warns if any are missing
+    
+    Returns
+    -------
+    list
+        Returns a list of dicts containing details about the device and its missing fields
+
+    Raises
+    ------
+    ValueError
+        If no devices can be found on ServiceNow
+    '''
     devices = snow_api.get_cis_by_site(company_name, site_name)
+    if not devices:
+        raise ValueError(f'No prtg managed devices found for {company_name} at {site_name}')
     missing_list = []
     # list of referenced fields: (snow field name, display name, required)
     ref_fields = (
@@ -63,6 +76,14 @@ def check_snow_fields(company_name, site_name):
     return missing_list
 
 def init_prtg_from_snow(prtg_instance, company_name, site_name, id):
+    '''Initializes PRTG devices to proper structure from ServiceNow cmdb configuration items.
+    Currently sends an email reports for unsuccessful/successful initialization.
+
+    Returns
+    -------
+    str
+        Response to be forwarded to fastapi endpoint responses
+    '''
     try:
         company = snow_api.get_company(company_name)
     except NoResults:
@@ -80,14 +101,17 @@ def init_prtg_from_snow(prtg_instance, company_name, site_name, id):
         logger.error(f'Found more than one record of site named {site_name}')
         return f'Found more than one record of site named {site_name}'
     # check cmdb fields first
-    missing_list = check_snow_fields(company_name, site_name)
+    try:
+        missing_list = check_snow_fields(company_name, site_name)
+    except ValueError as e:
+        return str(e)
     if missing_list:
         if any(len(device['errors']) > 0 for device in missing_list):
             logger.error(f'Missing required fields from cmdb records from {company_name} at {site_name}. Sending report out shortly.')
             email_report.send_missing_list(company_name, site_name, missing_list)
-            return f'CMDB Records are missing required fields to organize PRTG structure. Check report for more information.'
+            return f'CMDB records are missing required fields to organize PRTG structure. Check report for more information.'
         else:
-            logger.warning(f'Missing optional fields from cmdb reocrds from {company_name} at {site_name}. Continuing PRTG initialization...')
+            logger.warning(f'Missing optional fields from cmdb records from {company_name} at {site_name}. Continuing PRTG initialization...')
     # Comment when probe device is set. Each Site will have their own probe and as a result, the root group is already made
     root_name = f'[{company["name"]}] {location["name"]}' #TODO use u_site_name when it is consistent (instead of 'name' field)
     root_id = prtg_instance.add_group(root_name, id)
