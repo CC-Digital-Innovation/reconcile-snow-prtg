@@ -3,10 +3,9 @@ log_level = DEBUG
 sys_log_host = host.com
 sys_log_port = 1234
 mode = dev
-; max number of threads to run device checks on all companies and their sites
-max_threads = 10
-; number of retries to run device check
 attempts = 3
+; in seconds
+retry_sleep_time = 3
 
 [snow]
 snow_instance = snowinstance
