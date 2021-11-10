@@ -86,7 +86,12 @@ def digest_to_html(digest):
         builder.append('</tr>')
     builder.append('''
         </tbody>
-        </table>
+        </table>''')
+    if error:
+        builder.append('<h4>Logs</h4><p>')
+        for e in error:
+            builder.append(f'[{e["company"]}] {e["site"]}: {e["error"]}<br/>')
+    builder.append('''
         </body>
         </html>''')
     return ''.join(builder)
