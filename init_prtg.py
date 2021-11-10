@@ -5,6 +5,7 @@ from pysnow.exceptions import NoResults, MultipleResults
 
 import email_report
 import snow_api
+from prtg_api import PRTGInstance
 
 # read and parse config file
 config = configparser.ConfigParser()
@@ -75,7 +76,7 @@ def check_snow_fields(company_name, site_name):
             missing_list.append(missing)
     return missing_list
 
-def init_prtg_from_snow(prtg_instance, company_name, site_name, id):
+def init_prtg_from_snow(prtg_instance: PRTGInstance, company_name, site_name, id):
     '''Initializes PRTG devices to proper structure from ServiceNow cmdb configuration items.
     Currently sends an email reports for unsuccessful/successful initialization.
 
@@ -147,15 +148,17 @@ def init_prtg_from_snow(prtg_instance, company_name, site_name, id):
                     stage_id = prtg_instance.add_group(stage, cust_mng_inf_id)
                 category_id = prtg_instance.add_group(category, stage_id)
                 for ci in snow_cis:
-                    host_name = ci['u_host_name']
-                    # ip address as fallback in no hostname
-                    if not host_name:
-                        try:
-                            host_name = ci['host_name']
-                        except KeyError:
-                            pass
+                    try:
+                        host_name = ci['u_host_name']
+                    except KeyError:
+                        logger.warning('Could not find hostname, falling back to IP address.')
+                        host_name = ci['ip_address']
+                    else:
                         if not host_name:
                             host_name = ci['ip_address']
+                    if not host_name:
+                        logger.error(f'Host Name field is empty. Device {ci["name"]} cannot be initialized.')
+                        continue
                     # parse snow field references
                     try:
                         vendor_ci = snow_api.get_record(ci['vendor']['link'])['result']['name']
@@ -183,9 +186,10 @@ def init_prtg_from_snow(prtg_instance, company_name, site_name, id):
                         if not model_ci:
                             logger.error(f'Model ID field is empty. Device {ci["name"]} cannot be initialized.')
                             continue
-                    # edit icon to device
-                    device_name = ' '.join((host_name, manuf_ci, model_ci))
+                    # construct name, replacing spaces with hyphens
+                    device_name = ' '.join((host_name.replace(' ', '-'), manuf_ci.replace(' ', '-'), model_ci.replace(' ', '-')))
                     device_id = prtg_instance.add_device(device_name, category_id, ci['ip_address'])
+                    # edit icon to device
                     if vendor_ci:
                         prtg_instance.edit_icon(device_id, vendor_ci)
                     else:

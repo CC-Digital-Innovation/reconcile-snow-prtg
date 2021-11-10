@@ -1,5 +1,6 @@
 import configparser
 import json
+import re
 import time
 from pathlib import PurePath
 
@@ -8,6 +9,7 @@ from loguru import logger
 
 import email_report
 import snow_api
+from prtg_api import PRTGInstance
 
 # read and parse config file
 config = configparser.ConfigParser()
@@ -44,7 +46,7 @@ class MismatchBuilder():
             'snow': snow
         }
 
-def compare(prtg_instance, company_name, site_name):
+def compare(prtg_instance: PRTGInstance, company_name, site_name):
     '''Compares SNOW and PRTG devices
     
     Returns
@@ -119,7 +121,7 @@ def compare(prtg_instance, company_name, site_name):
             # get other fields for comparison
             device['host_name'] = names[0]
             device['manufacturer'] = names[1]
-            device['model_id'] = ' '.join(names[2:])
+            device['model_id'] = names[2]
             device['category'] = prtg_instance.get_obj_property(device['parentid'], 'name')
             stage_id = prtg_instance.get_obj_status(device['parentid'], 'parentid')
             device['stage'] = prtg_instance.get_obj_property(stage_id, 'name')
@@ -140,7 +142,10 @@ def compare(prtg_instance, company_name, site_name):
             for j, device in enumerate(prtg_list):
                 if not device:
                     continue
-                if ' '.join((ci['u_host_name'], ci['manufacturer'], ci['model_id'])) == device['name']:   
+                prtg_name = re.sub(' |-', '', device['name']).casefold()
+                snow_name = ''.join((re.sub(' |-', '', ci['u_host_name']), re.sub(' |-', '', ci['manufacturer']), re.sub(' |-', '', ci['model_id']))).casefold()
+                logger.debug(f'Comparing {prtg_name} and {snow_name}')
+                if snow_name == prtg_name:
                     builder = MismatchBuilder(prtg_device=device['name'], prtg_link=prtg_instance.device_url(device['objid']),
                                               snow_device=ci['name'], snow_link=snow_api.ci_url(ci['sys_id']))
                     # check all other fields
@@ -214,13 +219,13 @@ def compare(prtg_instance, company_name, site_name):
     num_mismatch = sum((len(m['fields']) for m in mismatch))
     return len(combined_prtg_list) + len(combined_snow_list) + num_mismatch
 
-def compare_with_attempts(prtg_instance, company_name, site_name, attempts=config['local'].getint('attempts')):
+def compare_with_attempts(prtg_instance, company_name, site_name, attempts=config['local'].getint('attempts'), sleep_time=config['local'].getint('retry_sleep_time')):
     for attempt in range(attempts):
         try:
             return compare(prtg_instance, company_name, site_name)
         except (requests.exceptions.ConnectionError, requests.exceptions.ConnectTimeout):
             logger.warning(f'Failed to connect for company {company_name} at {site_name}. Retrying {attempt + 1}...')
-            time.sleep(3)
+            time.sleep(sleep_time)
     else:
         logger.warning(f'Failed to get company {company_name} at {site_name} after {attempts} attempts.')
         raise ConnectionError(f'Failed to get company {company_name} at {site_name} after {attempts} attempts.')
