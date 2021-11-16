@@ -215,6 +215,7 @@ class PRTGInstance:
             self.edit_obj_settings(id, 'deviceicon', icon.value)
         except KeyError:
             logger.warning('Vendor not recognized, using category as fallback.')
+            icon = self.Icons[category.upper()]
             self.edit_obj_settings(id, 'deviceicon', category)
 
     def edit_location(self, id, location):
