@@ -25,14 +25,13 @@ def check_snow_fields(company_name, site_name):
     ValueError
         If no devices can be found on ServiceNow
     '''
-    devices = snow_api.get_cis_by_site(company_name, site_name)
+    devices = snow_api.get_customer_cis_by_site(company_name, site_name)
     if not devices:
         raise ValueError(f'No prtg managed devices found for {company_name} at {site_name}')
     missing_list = []
     # list of referenced fields: (snow field name, display name, required)
     ref_fields = (
         ('manufacturer', 'Manufacturer', True),
-        ('model_id', 'Model ID', True),
     )
     # list of non-referenced fields
     fields = (
@@ -43,7 +42,8 @@ def check_snow_fields(company_name, site_name):
         ('u_host_name', 'Host Name', True),
         ('ip_address', 'IP Address', False),
         ('u_username', 'Username', False),
-        ('u_fs_password', 'FS Password', False)
+        ('u_fs_password', 'FS Password', False),
+        ('model_number', 'Model Number', True)
     )
     for device in devices:
         missing = {
@@ -72,6 +72,17 @@ def check_snow_fields(company_name, site_name):
                     missing['errors'].append(display_name)
                 else:
                     missing['warnings'].append(display_name)
+        # remove required name if virtual device
+        try:
+            if device['u_category'] == 'Virtualization':
+                if 'Manufacturer' in missing['errors']:
+                    missing['errors'].remove('Manufacturer')
+                    missing['warnings'].append('Manufacturer')
+                if 'Model Number' in missing['errors']:
+                    missing['errors'].remove('Model Number')
+                    missing['warnings'].append('Model Number')
+        except KeyError:
+            pass
         if missing['errors'] or missing['warnings']:
             missing_list.append(missing)
     return missing_list
@@ -132,10 +143,72 @@ def init_prtg_from_snow(prtg_instance: PRTGInstance, company_name, site_name, id
     # add service url, i.e. link to ServiceNow configuration item
     prtg_instance.edit_service_url(root_id, snow_api.ci_url(location['sys_id']))
 
-    prtg_instance.add_group('Computacenter Infrastructure', root_id)
-    cust_mng_inf_id = prtg_instance.add_group('Customer Managed Infrastructure', root_id)
     # track cmdb ci created
     created = []
+
+    # add internal monitoring devices
+    cc_inf_id = prtg_instance.add_group('Computacenter Infrastructure', root_id)
+    snow_internal_cis = snow_api.get_internal_cis_by_site(company_name, site_name)
+    for ci in snow_internal_cis:
+        try:
+            host_name = ci['u_host_name']
+        except KeyError:
+            logger.warning('Could not find hostname, falling back to IP address.')
+            host_name = ci['ip_address']
+        else:
+            if not host_name:
+                host_name = ci['ip_address']
+        if not host_name:
+            logger.error(f'Host Name field is empty. Device {ci["name"]} cannot be initialized.')
+            continue
+        # parse snow field references
+        try:
+            vendor_ci = snow_api.get_record(ci['vendor']['link'])['result']['name']
+        except TypeError:
+            logger.warning(f'Tried to access record but field vendor is string: {ci["vendor"]}')
+            vendor_ci = ci['vendor']
+        finally:
+            if not vendor_ci:
+                logger.warning('Vendor field is empty. Icon field may not initialize properly.')
+        try:
+            manuf_ci = snow_api.get_record(ci['manufacturer']['link'])['result']['name']
+        except TypeError:
+            logger.warning(f'Tried to access record but field manufacturer is string: {ci["manufacturer"]}')
+            manuf_ci = ci['manufacturer']
+        finally:
+            if not manuf_ci:
+                if ci['u_category'] != 'Virtualization':
+                    logger.error(f'Manufacturer field is empty. Device {ci["name"]} cannot be initialized.')
+                    continue
+        model_ci = ci['model_number']
+        if not model_ci:
+            if ci['u_category'] != 'Virtualization':
+                logger.error(f'Model Number field is empty. Device {ci["name"]} cannot be initialized.')
+                continue
+        # construct name, replacing spaces with hyphens
+        device_name = ' '.join((host_name.replace(' ', '-'), manuf_ci.replace(' ', '-'), model_ci.replace(' ', '-')))
+        device_id = prtg_instance.add_device(device_name, cc_inf_id, ci['ip_address'])
+        # edit icon to device
+        if vendor_ci:
+            prtg_instance.edit_icon(device_id, vendor_ci, ci['u_category'])
+        else:
+            prtg_instance.edit_icon(device_id, manuf_ci, ci['u_category'])
+        # add service url (link to snow record)
+        snow_link = snow_api.ci_url(ci['sys_id'])
+        prtg_instance.edit_service_url(device_id, snow_link)
+        # add tags to device
+        prtg_instance.edit_tags(device_id, [ci['u_used_for'], ci['u_category']])
+        # add device for reporting
+        created.append({
+            "prtg": device_name,
+            "prtg_link": prtg_instance.device_url(device_id),
+            "snow": ci['name'],
+            "snow_link": snow_link
+        })
+
+    # add customer managed devices
+    cust_mng_inf_id = prtg_instance.add_group('Customer Managed Infrastructure', root_id)
+    
     # create devices based on stage -> type category -> device
     for stage in snow_api.get_u_used_for_labels():
         # reset stage group
@@ -175,25 +248,22 @@ def init_prtg_from_snow(prtg_instance: PRTGInstance, company_name, site_name, id
                         manuf_ci = ci['manufacturer']
                     finally:
                         if not manuf_ci:
-                            logger.error(f'Manufacturer field is empty. Device {ci["name"]} cannot be initialized.')
-                            continue
-                    try:
-                        model_ci = snow_api.get_record(ci['model_id']['link'])['result']['display_name']
-                    except TypeError:
-                        logger.warning(f'Tried to access record but field model_id is string: {ci["model_id"]}')
-                        model_ci = ci['model_id']
-                    finally:
-                        if not model_ci:
-                            logger.error(f'Model ID field is empty. Device {ci["name"]} cannot be initialized.')
+                            if category != 'Virtualization':
+                                logger.error(f'Manufacturer field is empty. Device {ci["name"]} cannot be initialized.')
+                                continue
+                    model_ci = ci['model_number']
+                    if not model_ci:
+                        if category != 'Virtualization':
+                            logger.error(f'Model Number field is empty. Device {ci["name"]} cannot be initialized.')
                             continue
                     # construct name, replacing spaces with hyphens
                     device_name = ' '.join((host_name.replace(' ', '-'), manuf_ci.replace(' ', '-'), model_ci.replace(' ', '-')))
                     device_id = prtg_instance.add_device(device_name, category_id, ci['ip_address'])
                     # edit icon to device
                     if vendor_ci:
-                        prtg_instance.edit_icon(device_id, vendor_ci)
+                        prtg_instance.edit_icon(device_id, vendor_ci, category)
                     else:
-                        prtg_instance.edit_icon(device_id, manuf_ci)
+                        prtg_instance.edit_icon(device_id, manuf_ci, category)
                     # add service url (link to snow record)
                     snow_link = snow_api.ci_url(ci['sys_id'])
                     prtg_instance.edit_service_url(device_id, snow_link)

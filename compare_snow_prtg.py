@@ -91,13 +91,8 @@ def compare(prtg_instance: PRTGInstance, company_name, site_name):
         except TypeError:
             manuf_ci = ci["manufacturer"]
             logger.warning(f'Tried to access record but field manufacturer is string: {manuf_ci}')
-        try:
-            model_id_ci = ci['model_id']['display_value']
-        except TypeError:
-            model_id_ci = ci['model_id']
         # replace reference with just name to save future get_record()'s
         ci['manufacturer'] = manuf_ci
-        ci['model_id'] = model_id_ci
         if manuf_ci:
             try:
                 grouped_snow[manuf_ci].append(ci)
@@ -114,17 +109,21 @@ def compare(prtg_instance: PRTGInstance, company_name, site_name):
     if prtg_devices:
         for device in prtg_devices:
             names = device['name'].split()
-            if len(names) < 3:
+            if len(names) < 2:
                 logger.error(f'Could not parse name of device "{device["name"]}"')
                 prtg_name_errors.append(device)
                 continue
             # get other fields for comparison
             device['host_name'] = names[0]
             device['manufacturer'] = names[1]
-            device['model_id'] = names[2]
-            device['category'] = prtg_instance.get_obj_property(device['parentid'], 'name')
-            stage_id = prtg_instance.get_obj_status(device['parentid'], 'parentid')
-            device['stage'] = prtg_instance.get_obj_property(stage_id, 'name')
+            if len(names) > 2:
+                device['model_number'] = names[2]
+            parent_name = prtg_instance.get_obj_property(device['parentid'], 'name')
+            # cc infrastructure is not nested by stage or category
+            if parent_name != 'Computacenter Infrastructure':
+                device['category'] = parent_name
+                stage_id = prtg_instance.get_obj_status(device['parentid'], 'parentid')
+                device['stage'] = prtg_instance.get_obj_property(stage_id, 'name')
             try:
                 grouped_prtg[device['manufacturer']].append(device)
             except KeyError:
@@ -143,8 +142,7 @@ def compare(prtg_instance: PRTGInstance, company_name, site_name):
                 if not device:
                     continue
                 prtg_name = re.sub(' |-', '', device['name']).casefold()
-                snow_name = ''.join((re.sub(' |-', '', ci['u_host_name']), re.sub(' |-', '', ci['manufacturer']), re.sub(' |-', '', ci['model_id']))).casefold()
-                logger.debug(f'Comparing {prtg_name} and {snow_name}')
+                snow_name = ''.join((re.sub(' |-', '', ci['u_host_name']), re.sub(' |-', '', ci['manufacturer']), re.sub(' |-', '', ci['model_number']))).casefold()
                 if snow_name == prtg_name:
                     builder = MismatchBuilder(prtg_device=device['name'], prtg_link=prtg_instance.device_url(device['objid']),
                                               snow_device=ci['name'], snow_link=snow_api.ci_url(ci['sys_id']))
@@ -172,6 +170,14 @@ def compare(prtg_instance: PRTGInstance, company_name, site_name):
                         builder.check('Country', p_country, s_country)
                     except ValueError:
                         builder.add('Location', device['location_raw'], ', '.join((s_street, s_city, s_state, s_country)))
+
+                    # stage, cc infrastructure devices does not have stage grandparent
+                    if 'stage' in device:
+                        builder.check('Used For', device['stage'], ci['u_used_for'])
+
+                    # category, cc infrastructure devices does not have category parent
+                    if 'category' in device:
+                        builder.check('Category (u_category)', device['category'], ci['u_category'])
 
                     # ip address
                     p_address = prtg_instance.get_obj_property(device['objid'], 'host')
