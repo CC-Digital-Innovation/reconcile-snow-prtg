@@ -419,11 +419,12 @@ class PRTGInstance:
         WESTERMO = 'vendors_Westermo.png'
         XEROX = 'vendors_Xerox.png'
         # category fallback icons
-        SERVER = 'A_Server_1'
-        BACKUP = 'A_Server_1'
+        SERVER = 'A_Server_1.png'
+        BACKUP = 'A_Server_1.png'
+        HARDWARE = 'device.png'
         NETWORK = 'Switch_2.png'
-        VIRTUALIZATION = 'C_OS_VMware'
-        REPLICATION = 'A_Server_1'
+        VIRTUALIZATION = 'C_OS_VMware.png'
+        REPLICATION = 'A_Server_1.png'
         STORAGE = 'B_Server_SQL.png'
 
     def _parse_obj_id(self, url):
