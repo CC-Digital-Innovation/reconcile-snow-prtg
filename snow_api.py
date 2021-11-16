@@ -117,6 +117,7 @@ def get_cis_filtered(company_name, location, category, stage):
         .AND().field('u_used_for').equals(stage)
         .AND().field('u_cc_type').not_equals('Out of Scope')
         .AND().field('u_prtg_implementation').equals('true')
+        .AND().field('u_prtg_instrumentation').equals('false')
     )
     response = cis.get(query=query)
     return response.all()
@@ -135,6 +136,44 @@ def get_cis_by_site(company_name, site_name):
         .AND().field('location.name').equals(site_name)
         .AND().field('u_cc_type').not_equals('Out of Scope')
         .AND().field('u_prtg_implementation').equals('true')
+    )
+    response = cis.get(query=query)
+    return response.all()
+
+def get_internal_cis_by_site(company_name, site_name):
+    '''Returns a list of all interal devices to monitor for a company'''
+    cis = snow_client.resource(api_path='/table/cmdb_ci')
+    cis.parameters.display_value = True
+    query = (
+        pysnow.QueryBuilder()
+        .field('company.name').equals(company_name)
+        .AND().field('name').order_ascending()
+        .AND().field('install_status').equals('1')      # Installed
+        .OR().field('install_status').equals('101')     # Active
+        .OR().field('install_status').equals('107')     # Duplicate installed
+        .AND().field('location.name').equals(site_name)
+        .AND().field('u_cc_type').not_equals('Out of Scope')
+        .AND().field('u_prtg_implementation').equals('true')
+        .AND().field('u_prtg_instrumentation').equals('true')
+    )
+    response = cis.get(query=query)
+    return response.all()
+
+def get_customer_cis_by_site(company_name, site_name):
+    '''Returns a list of all customer devices for a company'''
+    cis = snow_client.resource(api_path='/table/cmdb_ci')
+    cis.parameters.display_value = True
+    query = (
+        pysnow.QueryBuilder()
+        .field('company.name').equals(company_name)
+        .AND().field('name').order_ascending()
+        .AND().field('install_status').equals('1')      # Installed
+        .OR().field('install_status').equals('101')     # Active
+        .OR().field('install_status').equals('107')     # Duplicate installed
+        .AND().field('location.name').equals(site_name)
+        .AND().field('u_cc_type').not_equals('Out of Scope')
+        .AND().field('u_prtg_implementation').equals('true')
+        .AND().field('u_prtg_instrumentation').equals('false')
     )
     response = cis.get(query=query)
     return response.all()
