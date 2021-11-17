@@ -31,6 +31,8 @@ template_sensor = 1236
 [email]
 server = smtp.server.com
 port = 1234
+; comma-separated list
 to = to@email.com
 from = from@email.com
+user = username
 password = **********

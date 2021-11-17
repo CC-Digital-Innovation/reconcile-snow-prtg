@@ -13,21 +13,26 @@ config.read(config_path)
 
 smtp_server = config['email']['server']
 port = config['email']['port']
+user = config['email']['user']
 password = config['email']['password']
 sender_email = config['email']['from']
+receiver = config['email']['to']
 
 context = ssl.create_default_context()
 
 def send_email(subject, message):
-    with smtplib.SMTP_SSL(smtp_server, port, context=context) as server:
-        for receiver in config['email']['to'].split(','):
-            msg = EmailMessage()
-            msg['Subject'] = subject
-            msg['From'] = sender_email
-            msg['To'] = receiver
-            msg.add_alternative(message, subtype='html')
-            server.login(sender_email, password)
-            server.send_message(msg)
+    # create message
+    msg = EmailMessage()
+    msg['Subject'] = subject
+    msg['From'] = sender_email
+    msg['To'] = receiver
+    msg.set_content('''Report is create and sent as an HTML, and is only visibile with clients that can render HTML emails.
+                       Contact at jonny.le@computacenter.com if there are any issues.''')
+    msg.add_alternative(message, subtype='html')
+    with smtplib.SMTP(smtp_server, port) as server:
+        server.starttls(context=context)
+        server.login(user, password)
+        server.send_message(msg)
 
 def send_digest(digest):
     message = digest_to_html(digest)
@@ -39,7 +44,6 @@ def digest_to_html(digest):
     bad = []
     error = []
     for report in digest:
-        #TODO switch to EAFP when cmdb is more reliable
         if 'result' in report:
             if report['result']:
                 bad.append(report)
@@ -91,6 +95,7 @@ def digest_to_html(digest):
         builder.append('<h4>Logs</h4><p>')
         for e in error:
             builder.append(f'[{e["company"]}] {e["site"]}: {e["error"]}<br/>')
+        builder.append('</p>')
     builder.append('''
         </body>
         </html>''')
