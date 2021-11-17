@@ -163,14 +163,6 @@ def init_prtg_from_snow(prtg_instance: PRTGInstance, company_name, site_name, id
             continue
         # parse snow field references
         try:
-            vendor_ci = snow_api.get_record(ci['vendor']['link'])['result']['name']
-        except TypeError:
-            logger.warning(f'Tried to access record but field vendor is string: {ci["vendor"]}')
-            vendor_ci = ci['vendor']
-        finally:
-            if not vendor_ci:
-                logger.warning('Vendor field is empty. Icon field may not initialize properly.')
-        try:
             manuf_ci = snow_api.get_record(ci['manufacturer']['link'])['result']['name']
         except TypeError:
             logger.warning(f'Tried to access record but field manufacturer is string: {ci["manufacturer"]}')
@@ -189,10 +181,7 @@ def init_prtg_from_snow(prtg_instance: PRTGInstance, company_name, site_name, id
         device_name = ' '.join((host_name.replace(' ', '-'), manuf_ci.replace(' ', '-'), model_ci.replace(' ', '-')))
         device_id = prtg_instance.add_device(device_name, cc_inf_id, ci['ip_address'])
         # edit icon to device
-        if vendor_ci:
-            prtg_instance.edit_icon(device_id, vendor_ci, ci['u_category'])
-        else:
-            prtg_instance.edit_icon(device_id, manuf_ci, ci['u_category'])
+        prtg_instance.edit_icon(device_id, manuf_ci, ci['u_category'])
         # add service url (link to snow record)
         snow_link = snow_api.ci_url(ci['sys_id'])
         prtg_instance.edit_service_url(device_id, snow_link)
@@ -234,14 +223,6 @@ def init_prtg_from_snow(prtg_instance: PRTGInstance, company_name, site_name, id
                         continue
                     # parse snow field references
                     try:
-                        vendor_ci = snow_api.get_record(ci['vendor']['link'])['result']['name']
-                    except TypeError:
-                        logger.warning(f'Tried to access record but field vendor is string: {ci["vendor"]}')
-                        vendor_ci = ci['vendor']
-                    finally:
-                        if not vendor_ci:
-                            logger.warning('Vendor field is empty. Icon field may not initialize properly.')
-                    try:
                         manuf_ci = snow_api.get_record(ci['manufacturer']['link'])['result']['name']
                     except TypeError:
                         logger.warning(f'Tried to access record but field manufacturer is string: {ci["manufacturer"]}')
@@ -260,10 +241,7 @@ def init_prtg_from_snow(prtg_instance: PRTGInstance, company_name, site_name, id
                     device_name = ' '.join((host_name.replace(' ', '-'), manuf_ci.replace(' ', '-'), model_ci.replace(' ', '-')))
                     device_id = prtg_instance.add_device(device_name, category_id, ci['ip_address'])
                     # edit icon to device
-                    if vendor_ci:
-                        prtg_instance.edit_icon(device_id, vendor_ci, category)
-                    else:
-                        prtg_instance.edit_icon(device_id, manuf_ci, category)
+                    prtg_instance.edit_icon(device_id, manuf_ci, category)
                     # add service url (link to snow record)
                     snow_link = snow_api.ci_url(ci['sys_id'])
                     prtg_instance.edit_service_url(device_id, snow_link)
@@ -329,6 +307,6 @@ def init_prtg_from_snow(prtg_instance: PRTGInstance, company_name, site_name, id
                         "snow": ci['name'],
                         "snow_link": snow_link
                     })
-    # sort list
-    # created.sort(key=lambda device: device['prtg'])
+    # email report
+    logger.info('Successfully deployed PRTG devices from SNOW. Sending email report...')
     email_report.send_success_init_prtg(company_name, site_name, created, missing_list)
