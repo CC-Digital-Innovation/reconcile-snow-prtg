@@ -66,11 +66,10 @@ def compare(prtg_instance: PRTGInstance, company_name, site_name):
     snow_cis = snow_api.get_cis_by_site(company_name, site_name)
     # get prtg devices
     group_id = prtg_instance.get_probe_id(company_name, site_name)
-    if not group_id:
-        logger.warning(f'Could not find PRTG probe of company {company_name} at {site_name}')
-        prtg_devices = None
-    else:
+    if group_id:
         prtg_devices = prtg_instance.get_devices(group_id)
+    else:
+        prtg_devices = None
 
     # not prtg managed
     if not snow_cis and not prtg_devices:
