@@ -175,6 +175,37 @@ class PRTGInstance:
     #     if str(id) != str(self.template_sensor):
     #         return id
 
+    def pause_object(self, id):
+        '''Pause an object.'''
+        url = self.url + '/api/pause.htm'
+        params = {
+            'username': self.username,
+            'id': id,
+            'action': 0
+        }
+        if self.is_passhash:
+            params['passhash'] = self.password
+        else:
+            params['password'] = self.password
+        response = requests.get(url, params)
+        response.raise_for_status
+
+    def resume_object(self, id):
+        '''Resume an object.'''
+        url = self.url + '/api/pause.htm'
+        params = {
+            'username': self.username,
+
+            'id': id,
+            'action': 1
+        }
+        if self.is_passhash:
+            params['passhash'] = self.password
+        else:
+            params['password'] = self.password
+        response = requests.get(url, params)
+        response.raise_for_status
+
     def edit_obj_settings(self, id, name, value):
         '''Base api to change all object settings'''
         url = self.url + '/api/setobjectproperty.htm'

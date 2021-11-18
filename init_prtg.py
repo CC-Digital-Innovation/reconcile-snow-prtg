@@ -87,7 +87,7 @@ def check_snow_fields(company_name, site_name):
             missing_list.append(missing)
     return missing_list
 
-def init_prtg_from_snow(prtg_instance: PRTGInstance, company_name, site_name, id):
+def init_prtg_from_snow(prtg_instance: PRTGInstance, company_name, site_name, id, resume=False):
     '''Initializes PRTG devices to proper structure from ServiceNow cmdb configuration items.
     Currently sends an email reports for unsuccessful/successful initialization.
 
@@ -127,6 +127,7 @@ def init_prtg_from_snow(prtg_instance: PRTGInstance, company_name, site_name, id
     # Comment when probe device is set. Each Site will have their own probe and as a result, the root group is already made
     root_name = f'[{company["name"]}] {location["name"]}' #TODO use u_site_name when it is consistent (instead of 'name' field)
     root_id = prtg_instance.add_group(root_name, id)
+    prtg_instance.resume_object(root_id)
     
     # turn off location inheritance
     prtg_instance.edit_inherit_location(root_id, 0)
@@ -148,6 +149,7 @@ def init_prtg_from_snow(prtg_instance: PRTGInstance, company_name, site_name, id
 
     # add internal monitoring devices
     cc_inf_id = prtg_instance.add_group('Computacenter Infrastructure', root_id)
+    prtg_instance.resume_object(cc_inf_id)
     snow_internal_cis = snow_api.get_internal_cis_by_site(company_name, site_name)
     for ci in snow_internal_cis:
         try:
@@ -180,6 +182,8 @@ def init_prtg_from_snow(prtg_instance: PRTGInstance, company_name, site_name, id
         # construct name, replacing spaces with hyphens
         device_name = ' '.join((host_name.replace(' ', '-'), manuf_ci.replace(' ', '-'), model_ci.replace(' ', '-')))
         device_id = prtg_instance.add_device(device_name, cc_inf_id, ci['ip_address'])
+        if resume:
+            prtg_instance.resume_object(device_id)
         # edit icon to device
         prtg_instance.edit_icon(device_id, manuf_ci, ci['u_category'])
         # add service url (link to snow record)
@@ -197,6 +201,7 @@ def init_prtg_from_snow(prtg_instance: PRTGInstance, company_name, site_name, id
 
     # add customer managed devices
     cust_mng_inf_id = prtg_instance.add_group('Customer Managed Infrastructure', root_id)
+    prtg_instance.resume_object(cust_mng_inf_id)
     
     # create devices based on stage -> type category -> device
     for stage in snow_api.get_u_used_for_labels():
@@ -208,7 +213,9 @@ def init_prtg_from_snow(prtg_instance: PRTGInstance, company_name, site_name, id
             if snow_cis:
                 if not stage_id:
                     stage_id = prtg_instance.add_group(stage, cust_mng_inf_id)
+                    prtg_instance.resume_object(stage_id)
                 category_id = prtg_instance.add_group(category, stage_id)
+                prtg_instance.resume_object(category_id)
                 for ci in snow_cis:
                     try:
                         host_name = ci['u_host_name']
@@ -240,6 +247,8 @@ def init_prtg_from_snow(prtg_instance: PRTGInstance, company_name, site_name, id
                     # construct name, replacing spaces with hyphens
                     device_name = ' '.join((host_name.replace(' ', '-'), manuf_ci.replace(' ', '-'), model_ci.replace(' ', '-')))
                     device_id = prtg_instance.add_device(device_name, category_id, ci['ip_address'])
+                    if resume:
+                        prtg_instance.resume_object(device_id)
                     # edit icon to device
                     prtg_instance.edit_icon(device_id, manuf_ci, category)
                     # add service url (link to snow record)

@@ -29,7 +29,7 @@ app = FastAPI()
 
 @logger.catch
 @app.post('/initPRTG')
-def init_prtg(companyName: str, siteName: str, probeId: int, prtgUrl: Optional[str]=None, username: Optional[str]=None, password: Optional[str]=None, isPasshash: Optional[bool]=False, templateGroup: Optional[int]=None, templateDevice: Optional[int]=None):
+def init_prtg(companyName: str, siteName: str, probeId: int, unpause: Optional[bool]=False, prtgUrl: Optional[str]=None, username: Optional[str]=None, password: Optional[str]=None, isPasshash: Optional[bool]=False, templateGroup: Optional[int]=None, templateDevice: Optional[int]=None):
     if prtgUrl and username and password and templateGroup and templateDevice:
         try:
             prtg_instance = PRTGInstance(prtgUrl, username, password, templateGroup, templateDevice, isPasshash)
@@ -39,7 +39,7 @@ def init_prtg(companyName: str, siteName: str, probeId: int, prtgUrl: Optional[s
         logger.info('No parameters for a PRTG instance. Using default instance from config.')
         prtg_instance = PRTGInstance(config['prtg']['base_url'], config['prtg']['username'], config['prtg']['passhash'], config['prtg']['template_group'], config['prtg']['template_device'], True)
     try:
-        response = init_prtg_from_snow(prtg_instance, companyName, siteName, probeId)
+        response = init_prtg_from_snow(prtg_instance, companyName, siteName, probeId, unpause)
     except Exception as e:
         logger.exception(f'Exception: {e}')
         raise HTTPException(status_code=400, detail='An error has occurred')
