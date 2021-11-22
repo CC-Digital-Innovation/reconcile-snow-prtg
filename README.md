@@ -31,7 +31,7 @@ _Names in parentheses represent its ServiceNow internal name. If name is missing
 * Country(u_country) - Name
 * Location(cmn_location) - Name, Company`[R]`, Street, City, State, Country`[R]`
 * Manufacturer - Name
-* Devices(cmdb_ci) - Company`[R]`, Status(install_status), Location`[R]`, Category(u_category), Used For(u_used_for), CC Type(u_cc_type), Priority, Credential Type, Host Name(u_host_name), IP Address, Manufacturer (or Vendor)`[R]`, Model ID`[R]`, PRTG Managed, Username, Password(u_fs_password)
+* Devices(cmdb_ci) - Company`[R]`, Status(install_status), Location`[R]`, Category(u_category), Used For(u_used_for), CC Type(u_cc_type), Priority, Credential Type, Host Name(u_host_name), IP Address, Manufacturer`[R]`, Model Number, PRTG Implementation, PRTG Instrumentation, Username, Password(u_fs_password)
     * _`u_category` is to categorize the type of the device, e.g. server, network, backup, etc_
     * _`u_cc_type` is used to filter any out of scope devices_
     * _`install_status` is used to filter installed/active devices_
@@ -85,8 +85,9 @@ docker-compose up -d
 
 ## TODOs
 * Create ServiceNow ticket for each customer when there are issues
-* API to respond to tickets
+* Functions to respond to tickets
 * Weekly digest to include tickets created, pending, and resolved
+* Service Catalog option for engineers to request any of the features
 
 ## Author
 * Jonny Le <<jonny.le@computacenter.com>>
