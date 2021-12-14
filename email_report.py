@@ -51,15 +51,31 @@ def digest_to_html(digest):
                 good.append(report)
         elif 'error' in report:
             error.append(report)
-    builder = [f'''
+    builder = [f'''\
+        <!DOCTYPE html>
         <html>
         <head>
-            <style>
-                caption {{ font-weight: bold; }}
-                table {{ width: 100%; }}
-                table, th, td {{ border: 1px solid black; border-collapse: collapse; }}
-                th, td {{ padding: 5px; }}
-            </style>
+        <title>Reconcile - Digest Report</title>
+        <style>
+            caption {{ 
+                font-weight: bold; 
+            }}
+            table {{
+                border-collapse: collapse;
+            }}
+            th {{
+                border: 1px solid black;
+                padding: 3px;
+                background-color: #08088A;
+                color: white;
+                font-size: 100%;
+            }}
+            td {{
+                border: 1px solid black;
+                padding: 3px;
+                font-size: 100%;
+            }}
+        </style>
         </head>
         <body>
         <table>
@@ -107,14 +123,31 @@ def send_report(company_name, site_name, missing_in_prtg, missing_in_snow, misma
     send_email(subject, message)
 
 def report_to_html(company_name, site_name, missing_in_prtg, missing_in_snow, mismatch):
-    builder = ['''
+    builder = ['''\
+        <!DOCTYPE html>
         <html>
         <head>
-            <style>
-                caption { font-weight: bold; }
-                table, th, td { border: 1px solid black; border-collapse: collapse; }
-                th, td { padding: 5px; }
-            </style>
+        <title>Reconcile Report</title>
+        <style>
+            caption {
+                font-weight: bold; 
+            }
+            table {
+                border-collapse: collapse;
+            }
+            th {
+                border: 1px solid black;
+                padding: 3px;
+                background-color: #08088A;
+                color: white;
+                font-size: 100%;
+            }
+            td {
+                border: 1px solid black;
+                padding: 3px;
+                font-size: 100%;
+            }
+        </style>
         </head>
         <body>
         ''']
@@ -158,9 +191,31 @@ def send_missing_list(company_name, site_name, missing_list):
     send_email(subject, message)
 
 def missing_fields_to_html(company_name, site_name, missing_list):
-    builder = ['''
+    builder = ['''\
+        <!DOCTYPE html>
         <html>
         <head>
+        <title>Automated PRTG Deployment</title>
+        <style>
+            caption {
+                font-weight: bold; 
+            }
+            table {
+                border-collapse: collapse;
+            }
+            th {
+                border: 1px solid black;
+                padding: 3px;
+                background-color: #08088A;
+                color: white;
+                font-size: 100%;
+            }
+            td {
+                border: 1px solid black;
+                padding: 3px;
+                font-size: 100%;
+            }
+        </style>
         </head>
         <body>
         ''']
@@ -185,14 +240,31 @@ def send_success_init_prtg(company_name, site_name, created_list, missing_list):
     send_email(subject, message)
 
 def init_to_html(company_name, site_name, created_list, missing_list):
-    builder = [f'''
+    builder = [f'''\
+        <!DOCTYPE html>
         <html>
         <head>
-            <style>
-                caption {{ font-weight: bold; }}
-                table, th, td {{ border: 1px solid black; border-collapse: collapse; }}
-                th, td {{ padding: 5px; }}
-            </style>
+        <title>Automated PRTG Deployent</title>
+        <style>
+            caption {{
+                font-weight: bold; 
+            }}
+            table {{
+                border-collapse: collapse;
+            }}
+            th {{
+                border: 1px solid black;
+                padding: 3px;
+                background-color: #08088A;
+                color: white;
+                font-size: 100%;
+            }}
+            td {{
+                border: 1px solid black;
+                padding: 3px;
+                font-size: 100%;
+            }}
+        </style>
         </head>
         <body>
             <h1>Successfully created the PRTG structure for {company_name} at {site_name}.</h1>
