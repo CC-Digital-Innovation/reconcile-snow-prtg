@@ -14,6 +14,7 @@ Using PYSNOW, PRTG's API, and FastAPI, this program can:
     * [Local Requirements](#local-requirements)
     * [Installation](#installation)
     * [Usage](#usage)
+* [TODOs](#todos)
 * [Author](#author)
 * [License](#license)
 
@@ -31,11 +32,13 @@ _Names in parentheses represent its ServiceNow internal name. If name is missing
 * Country(u_country) - Name
 * Location(cmn_location) - Name, Company`[R]`, Street, City, State, Country`[R]`
 * Manufacturer - Name
-* Devices(cmdb_ci) - Company`[R]`, Status(install_status), Location`[R]`, Category(u_category), Used For(u_used_for), CC Type(u_cc_type), Priority, Credential Type, Host Name(u_host_name), IP Address, Manufacturer`[R]`, Model Number, PRTG Implementation, PRTG Instrumentation, Username, Password(u_fs_password)
-    * _`u_category` is to categorize the type of the device, e.g. server, network, backup, etc_
-    * _`u_cc_type` is used to filter any out of scope devices_
-    * _`install_status` is used to filter installed/active devices_
-    * _`u_fs_password` password2 type field_
+* Devices(cmdb_ci) - Company`[R]`, Status(install_status), Location`[R]`, Category(u_category), Used For(u_used_for), CC Type(u_cc_type), Priority, Credential Type, Host Name(u_host_name), IP Address, Manufacturer`[R]`, Model Number, PRTG Implementation(u_prtg_implementation), PRTG Instrumentation(u_prtg_instrumentation), Username, Password(u_fs_password)
+    * _`u_category` is a type to categorize the type of the device, e.g. server, network, backup, etc_
+    * _`u_cc_type` is a type used to filter any out of scope devices_
+    * _`install_status` is a type used to filter installed/active devices_
+    * _`u_fs_password` is a password2 type field that can be decrypted_
+    * _`u_prtg_implementation` is a flag used to recognize if a device is monitored on PRTG_
+    * _`u_prtg_instrumentation` is a flag used to separate CC devices from customer managed devices. True = CC Infrastructure_
  
  In order to add credentials to PRTG devices, an API to decrypt u_fs_password is required.
 
