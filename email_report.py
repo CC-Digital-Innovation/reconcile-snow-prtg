@@ -272,7 +272,7 @@ def init_to_html(company_name, site_name, created_list, missing_list):
             <caption>Devices Added to PRTG</caption>
             <thead>
                 <tr>
-                    <th style="border-top: 0; border-left: 0;"></th>
+                    <th style="border-top: 0; border-left: 0; background-color: transparent;"></th>
                     <th>PRTG Name</th>
                     <th>SNOW Name</th>
                 </tr>
