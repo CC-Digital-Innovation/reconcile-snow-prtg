@@ -1,0 +1,33 @@
+version: "3.7"
+services:
+    reconcile-snow-prtg:
+        build: .
+        networks:
+            - caddy
+        labels:
+            caddy: ENC[AES256_GCM,data:DvZcBJd+VzZS,iv:LP06QI5FA4x/0W6+wj8bU3Wf06JNNgW9G0SRB0BxEPw=,tag:P0/7N2MP7yJeqLz0Imkr0w==,type:str]
+            caddy.reverse_proxy: ENC[AES256_GCM,data:Yec9lHVy1wNFto63qzP7Fg==,iv:GUGgQQKxjezfRC7Ed+ZBkK0EA3Uo0azyjnJWnnDWOgo=,tag:C1SlebTHX/qEZ/yppAslJQ==,type:str]
+        restart: always
+networks:
+    caddy:
+        external: true
+sops:
+    kms: []
+    gcp_kms: []
+    azure_kv: []
+    hc_vault: []
+    age:
+        - recipient: age1r2sjuqrr3s22w00xg7pthpjand4r3su5x5fjhhpaaq8kvsde3aaqk442uv
+          enc: |
+            -----BEGIN AGE ENCRYPTED FILE-----
+            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSB6bHFKWDhNNk5JTW9nend4
+            bHRpRU5jMFF3T1lSVWY3c3pxM2pFLyt1bUNrClFhazNhb2N5UVNxVXB6Szg4M2l2
+            SGFzd0JqcEFESTZOUFp1bTh6SG1MNjgKLS0tIHFabUhlR1grbTA4a2VRdzJBdkFX
+            VmZDeUtkQi9ISVJiQ1lvbEZVeEFXc28KWN6Vucp7KVBqCSDtNCnHzxEzF9LJBAxG
+            MA7sQlxsXUAWCoZP1AKt/zGxgsA8mzOZ0R+30ikbl6mDheaAUwKCLQ==
+            -----END AGE ENCRYPTED FILE-----
+    lastmodified: "2022-01-06T18:38:26Z"
+    mac: ENC[AES256_GCM,data:GblolA8yx+oJIPx1tahTYy4fQhzmp903HefARgpqMlaRIKuRmloC2VOKGbaHC3oqNsOrjmG5SewGEjztPcXltxzmAlm0gPkXm7qUQeAnCYdX3D6ScjCIEGorSsxlVc7tB7WpQukdwiaffcqS6qhEYKBgbRBMpcpAFOF2Txur35s=,iv:xoocGpoa5q78P54WNrKYBfitqeTPzhn1zFGb5tMH//4=,tag:uixA8qseXs+DlLJwq1PE2A==,type:str]
+    pgp: []
+    encrypted_regex: labels
+    version: 3.7.1

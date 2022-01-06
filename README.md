@@ -67,7 +67,11 @@ git clone https://github.com/CC-Digital-Innovation/reconcile-snow-prtg.git
 * or download the [zip](https://github.com/CC-Digital-Innovation/reconcile-snow-prtg/archive/refs/heads/main.zip)
 
 ### Usage
-
+* Before the application can run, the configuration and docker-compose files must be decrypted using [sops](https://github.com/mozilla/sops). The required key file needs to be in the appropriate location.
+    ```bash
+    sops -d encrypted.ini > config.ini
+    sops -d docker-compose.encrypted.yml > docker-compose.yml
+    ```
 * This container uses [Caddy-Docker-Proxy](https://github.com/lucaslorentz/caddy-docker-proxy) as a reverse proxy. Here is the [gist](https://gist.github.com/jonnyle2/e78b2803d1da709b8c5153a1248c4327). Save it in a separate directory and edit the domain name. Then,
     * Create the network:
     ```bash
