@@ -27,9 +27,13 @@ set_log_level(config['local']['log_level'])
 logger.info('Starting up SNOW and PRTG Automation FastAPI...')
 app = FastAPI()
 
+TOKEN = config['local']['token']
+
 @logger.catch
 @app.post('/initPRTG')
-def init_prtg(companyName: str, siteName: str, probeId: int, unpause: Optional[bool]=False, prtgUrl: Optional[str]=None, username: Optional[str]=None, password: Optional[str]=None, isPasshash: Optional[bool]=False, templateGroup: Optional[int]=None, templateDevice: Optional[int]=None):
+def init_prtg(token: str, companyName: str, siteName: str, probeId: int, unpause: Optional[bool]=False, prtgUrl: Optional[str]=None, username: Optional[str]=None, password: Optional[str]=None, isPasshash: Optional[bool]=False, templateGroup: Optional[int]=None, templateDevice: Optional[int]=None):
+    if token != TOKEN:
+        raise HTTPException(status_code=401, detail='Unauthorized request.')
     if prtgUrl and username and password and templateGroup and templateDevice:
         try:
             prtg_instance = PRTGInstance(prtgUrl, username, password, templateGroup, templateDevice, isPasshash)
@@ -50,7 +54,9 @@ def init_prtg(companyName: str, siteName: str, probeId: int, unpause: Optional[b
 
 @logger.catch
 @app.get('/reconcileCompany')
-def reconcile_company(companyName: str, siteName: str, prtgUrl: Optional[str]=None, username: Optional[str]=None, password: Optional[str]=None, isPasshash: Optional[bool]=False):
+def reconcile_company(token: str, companyName: str, siteName: str, prtgUrl: Optional[str]=None, username: Optional[str]=None, password: Optional[str]=None, isPasshash: Optional[bool]=False):
+    if token != TOKEN:
+        raise HTTPException(status_code=401, detail='Unauthorized request.')
     if prtgUrl and username and password:
         try:
             prtg_instance = PRTGInstance(prtgUrl, username, password, None, None, isPasshash)
@@ -76,7 +82,9 @@ def reconcile_company(companyName: str, siteName: str, prtgUrl: Optional[str]=No
 
 @logger.catch
 @app.get('/reconcileAll')
-def reconcile_all(prtgUrl: Optional[str]=None, username: Optional[str]=None, password: Optional[str]=None, isPasshash: Optional[bool]=False):
+def reconcile_all(token: str, prtgUrl: Optional[str]=None, username: Optional[str]=None, password: Optional[str]=None, isPasshash: Optional[bool]=False):
+    if token != TOKEN:
+        raise HTTPException(status_code=401, detail='Unauthorized request.')
     if prtgUrl and username and password:
         try:
             prtg_instance = PRTGInstance(prtgUrl, username, password, None, None, isPasshash)
