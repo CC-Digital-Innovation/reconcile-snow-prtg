@@ -5,3 +5,7 @@ venv/
 .theia/
 __pycache__/
 README.md
+LICENSE
+Dockerfile
+docker-compose.yaml
+docker-compose.yml

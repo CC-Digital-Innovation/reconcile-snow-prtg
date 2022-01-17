@@ -5,3 +5,4 @@ venv/
 
 config.ini
 docker-compose.yml
+docker-compose.yaml
