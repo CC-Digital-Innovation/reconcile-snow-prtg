@@ -1,0 +1,14 @@
+version: '3.7'
+services:
+  reconcile-snow-prtg:
+    image: ccfs/reconile-snow-prtg:latest
+    labels:
+      # edit to correct hostname
+      caddy: api.example.com
+      caddy.reverse_proxy: "{{upstreams 80}}"
+    networks:
+    - caddy
+    restart: always
+networks:
+  caddy:
+    external: true
