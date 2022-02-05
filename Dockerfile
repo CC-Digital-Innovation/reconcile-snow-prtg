@@ -11,11 +11,11 @@ RUN curl -OL https://github.com/mozilla/sops/releases/download/v3.7.1/sops_3.7.1
 
 WORKDIR /app
 
-COPY ./requirements.txt ./requirements.txt
+COPY requirements.txt requirements.txt
 RUN pip install --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . ./
+COPY . .
 
 EXPOSE 80
 
