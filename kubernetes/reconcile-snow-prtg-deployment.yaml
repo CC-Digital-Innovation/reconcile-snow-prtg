@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+  labels:
+    io.kompose.service: reconcile-snow-prtg
+  name: reconcile-snow-prtg
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      io.kompose.service: reconcile-snow-prtg
+  template:
+    metadata:
+      labels:
+        io.kompose.service: reconcile-snow-prtg
+    spec:
+      containers:
+      - env:
+        - name: JWT_PATH
+          value: /var/run/secrets/kubernetes.io/serviceaccount/token
+        - name: VAULT_ADDR
+          value: http://vault.vault:8200
+        image: ccfs/reconcile-snow-prtg
+        imagePullPolicy: Always
+        name: reconcile-snow-prtg
+        ports:
+        - containerPort: 80
+          protocol: TCP
+        resources:
+          limits:
+            cpu: 100m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+      imagePullSecrets:
+      - name: regcred
+      restartPolicy: Always
+      serviceAccountName: vault
