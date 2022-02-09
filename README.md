@@ -8,12 +8,15 @@ Using PYSNOW, PRTG's API, and FastAPI, this program can:
 * Reconcile all PRTG managed devices on ServiceNow and PRTG
 
 ## Table of Contents
+
 * [Getting Started](#getting-started)
     * [ServiceNow Requirements](#servicenow-requirements)
     * [PRTG Requirements](#prtg-requirements)
     * [Local Requirements](#local-requirements)
     * [Installation](#installation)
     * [Usage](#usage)
+        * [Docker](#docker)
+        * [Kubernetes](#kubernetes)
 * [TODOs](#todos)
 * [Author](#author)
 * [License](#license)
@@ -51,10 +54,15 @@ _Names in parentheses represent its ServiceNow internal name. If name is missing
 
 ### Local Requirements
 
-* Python
-    * _Note: Developed using Python 3.8.7 64-bit, but was not tested with any other version._
 * Docker
     * _Note: Developed using Docker version 20.10.8, but was not tested with any other version._
+
+or
+
+* Kubernetes
+    * Kubernetes cluster
+    * [kubectl](https://kubernetes.io/docs/tasks/tools/) configured to cluster
+        * _Note: Developed using version 1.19.16, but was not tested with any other version._
 
 ### Installation
 
@@ -67,6 +75,9 @@ git clone https://github.com/CC-Digital-Innovation/reconcile-snow-prtg.git
 * or download the [zip](https://github.com/CC-Digital-Innovation/reconcile-snow-prtg/archive/refs/heads/main.zip)
 
 ### Usage
+
+#### Docker
+
 * Before the application can run, the configuration and docker-compose files must be decrypted using [sops](https://github.com/mozilla/sops). The required key file needs to be in the appropriate location.
     ```bash
     sops -d encrypted.ini > config.ini
@@ -89,6 +100,77 @@ docker-compose up -d
 ```
 * FastAPI features documentation and schemas of the api, served at `/docs` or `/redocs`
 * To have a recurring check, [Ofelia](https://github.com/mcuadros/ofelia) is used to schedule the job. Here is the [gist](https://gist.github.com/jonnyle2/d4d2859ea444e33a1c0cb06b44eb36d7). Save it in a separate directory, edit the domain name for the command, and use the same line as before to start up the container.
+<hr/>
+
+#### Kubernetes
+
+The Kubernetes deployment will still need the container image from a container registry so build and push that first.
+
+For example, using a local Docker to push to DockerHub:
+```bash
+docker build -t ccfs/reconcile-snow-prtg .
+docker push ccfs/reconcile-snow-prtg
+```
+If not logged in (from CLI), run `docker login` before pushing.
+
+The project will be deployed as a Deployment, but will need a Service and Ingress in order to be available to the public. For automatic HTTPS, [cert-manager](https://cert-manager.io/docs/) and [Let's Encrypt](https://letsencrypt.org/) can be used. An Ingress Controller will also need to be added (in the case of K3s, traefik is created and used by default).
+
+`reconcile-snow-prtg-deployment.yaml` is already in the [repo](https://github.com/CC-Digital-Innovation/reconcile-snow-prtg/blob/main/kubernetes/reconcile-snow-prtg-deployment.yaml).
+
+`reconcile-snow-prtg-service.yaml`
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    io.kompose.service: reconcile-snow-prtg
+  name: reconcile-snow-prtg
+spec:
+  ports:
+  - port: 80
+    protocol: TCP
+  selector:
+    io.kompose.service: reconcile-snow-prtg
+```
+* The `spec.selector` can by anything, but must be the same as the labels defined in the deployment. Here, the `metadata.labels` was chosen by [Kompose](https://kompose.io/).
+
+`reconcile-snow-prtg-ingress.yaml`
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+    traefik.ingress.kubernetes.io/redirect-entry-point: https
+    traefik.ingress.kubernetes.io/redirect-permanent: "true"
+    traefik.ingress.kubernetes.io/rewrite-target: /
+  name: reconcile-snow-prtg
+spec:
+  ingressClassName: traefik
+  rules:
+  - host: myhost.com
+    http:
+      paths:
+      - backend:
+          serviceName: reconcile-snow-prtg
+          servicePort: 80
+        path: /xsautomate
+        pathType: Prefix
+  tls:
+  - hosts:
+    - myhost.com
+    secretName: reconcile-snow-prtg-cert
+```
+A few things to highlight in the Ingress:
+* The cluster, certificate issuer was already [created](https://cert-manager.io/docs/configuration/acme/#creating-a-basic-acme-issuer) and is named `letsencrypt`. Adding it to the `metadata.annotations` and `spec.tls` will configure it to automatically provide TLS support.
+* Traefik's Ingress Controller provides useful annotations like HTTP->HTTPS redirects and path rewrites, which is stripping the extra path (in this case `/xsautomate`) for the interals to use properly).
+
+All manifests can be created using `kubectl apply -f <filename>`.
+
+In this case:
+```bash
+kubectl apply -f reconcile-snow-prtg-deployment.yaml,reconcile-snow-prtg-service.yaml,reconcile-snow-prtg-ingress.yaml
+```
 
 ## TODOs
 * Create ServiceNow ticket for each customer when there are issues
