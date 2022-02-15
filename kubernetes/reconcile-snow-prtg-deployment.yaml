@@ -21,7 +21,7 @@ spec:
           value: /var/run/secrets/kubernetes.io/serviceaccount/token
         - name: VAULT_ADDR
           value: http://vault.vault:8200
-        image: ccfs/reconcile-snow-prtg
+        image: registry.quokka.ninja/ccfs/xsautomate-actions/reconcile-snow-prtg:latest
         imagePullPolicy: Always
         name: reconcile-snow-prtg
         ports:
@@ -29,12 +29,13 @@ spec:
           protocol: TCP
         resources:
           limits:
+            cpu: 500m
+            memory: 1024Mi
+          requests:
             cpu: 100m
             memory: 128Mi
-          requests:
-            cpu: 50m
-            memory: 64Mi
       imagePullSecrets:
-      - name: regcred
+      - name: gitlab-cr
       restartPolicy: Always
       serviceAccountName: vault
+  revisionHistoryLimit: 1
