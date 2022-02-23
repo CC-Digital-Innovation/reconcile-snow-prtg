@@ -79,6 +79,7 @@ pipeline {
                     sh """
                         if kubectl get -f $K8S_PATH
                         then
+                            kubectl apply -f $K8S_PATH
                             kubectl rollout restart -f $K8S_PATH
                         else
                             kubectl apply -f $K8S_PATH
