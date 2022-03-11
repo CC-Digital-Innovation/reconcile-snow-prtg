@@ -13,37 +13,7 @@ pipeline {
     }
     agent {
         kubernetes {
-            inheritFrom 'default'
-            yaml """
-                apiVersion: v1
-                kind: Pod
-                spec:
-                  containers:
-                  - name: kaniko
-                    image: gcr.io/kaniko-project/executor:$KANIKO_TAG
-                    command:
-                    - sleep
-                    args:
-                    - 99d
-                    volumeMounts:
-                    - name: registry-config
-                      mountPath: /kaniko/.docker
-                  - name: kubectl
-                    image: bitnami/kubectl:$KUBECTL_TAG
-                    command:
-                    - sleep
-                    args:
-                    - 99d
-                  volumes:
-                  - name: registry-config
-                    secret:
-                      secretName: $REG_CRED
-                      items:
-                      - key: .dockerconfigjson
-                        path: config.json
-                  securityContext:
-                    runAsUser: 0
-            """
+            inheritFrom 'kaniko-and-kubectl'
         }
     }
     stages {
