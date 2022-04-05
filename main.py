@@ -99,3 +99,7 @@ def reconcile_all(token: str, prtgUrl: Optional[str]=None, username: Optional[st
     except Exception as e:
         logger.exception(f'Exception: {e}')
         raise HTTPException(status_code=400, detail='An error has occurred. Failed to check all company sites.')
+
+@app.get('/helloWorld')
+def hello_world():
+    return 'Hello, World!'
