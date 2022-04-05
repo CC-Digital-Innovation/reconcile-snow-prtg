@@ -9,5 +9,4 @@ LICENSE
 Dockerfile
 docker-compose.yaml
 docker-compose.yml
-config.ini
 kubernetes/

@@ -19,4 +19,6 @@ COPY . .
 
 EXPOSE 80
 
+# Switch for development
+# CMD [ "gunicorn", "main:app", "--bind", "0.0.0.0:80", "--workers", "4", "--worker-class", "uvicorn.workers.UvicornWorker" ]
 CMD [ "./build-script.sh" ]
