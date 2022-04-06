@@ -171,14 +171,12 @@ def init_prtg_from_snow(prtg_instance: PRTGInstance, company_name, site_name, id
             manuf_ci = ci['manufacturer']
         finally:
             if not manuf_ci:
-                if ci['u_category'] != 'Virtualization':
-                    logger.error(f'Manufacturer field is empty. Device {ci["name"]} cannot be initialized.')
-                    continue
+                logger.error(f'Manufacturer field is empty. Device {ci["name"]} cannot be initialized.')
+                continue
         model_ci = ci['model_number']
         if not model_ci:
-            if ci['u_category'] != 'Virtualization':
-                logger.error(f'Model Number field is empty. Device {ci["name"]} cannot be initialized.')
-                continue
+            logger.error(f'Model Number field is empty. Device {ci["name"]} cannot be initialized.')
+            continue
         # construct name, replacing spaces with hyphens
         device_name = ' '.join((host_name.replace(' ', '-'), manuf_ci.replace(' ', '-'), model_ci.replace(' ', '-')))
         device_id = prtg_instance.add_device(device_name, cc_inf_id, ci['ip_address'])

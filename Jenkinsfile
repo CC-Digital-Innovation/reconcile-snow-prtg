@@ -2,10 +2,6 @@
 IMAGE = "registry.quokka.ninja/ccfs/xsautomate-actions/reconcile-snow-prtg"
 VERSION = '0.1.0'
 K8S_PATH = 'kubernetes/reconcile-snow-prtg-deployment.yaml'
-KANIKO_TAG = 'v1.6.0-debug'
-KUBECTL_TAG = '1.19.16'
-// name of secret that contains registry credentials
-REG_CRED = 'gitlab-cr'
 
 pipeline {
     triggers {
