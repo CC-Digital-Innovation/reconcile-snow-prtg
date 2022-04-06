@@ -87,7 +87,7 @@ def check_snow_fields(company_name, site_name):
             missing_list.append(missing)
     return missing_list
 
-def init_prtg_from_snow(prtg_instance: PRTGInstance, company_name, site_name, id, resume=False):
+def init_prtg_from_snow(prtg_instance: PRTGInstance, company_name, site_name, probe_id, resume=False):
     '''Initializes PRTG devices to proper structure from ServiceNow cmdb configuration items.
     Currently sends an email reports for unsuccessful/successful initialization.
 
@@ -124,13 +124,15 @@ def init_prtg_from_snow(prtg_instance: PRTGInstance, company_name, site_name, id
             return f'CMDB records are missing required fields to organize PRTG structure. Check report for more information.'
         else:
             logger.warning(f'Missing optional fields from cmdb records from {company_name} at {site_name}. Continuing PRTG initialization...')
-    # Comment when probe device is set. Each Site will have their own probe and as a result, the root group is already made
-    root_name = f'[{company["name"]}] {location["name"]}' #TODO use u_site_name when it is consistent (instead of 'name' field)
-    root_id = prtg_instance.add_group(root_name, id)
-    prtg_instance.resume_object(root_id)
+    # Comment when probe device is set. Each Site will have their own probe and as a result, the root group is already made. Add 'root_id = id'
+    # root_name = f'[{company["name"]}] {location["name"]}' #TODO use u_site_name when it is consistent (instead of 'name' field)
+    # root_id = prtg_instance.add_group(root_name, probe_id)
+    # prtg_instance.resume_object(root_id)
     
     # turn off location inheritance
-    prtg_instance.edit_inherit_location(root_id, 0)
+    # prtg_instance.edit_inherit_location(root_id, 0)
+
+    root_id = probe_id
 
     # add location to root group
     try:

@@ -7,7 +7,7 @@ import requests
 from loguru import logger
 
 class PRTGInstance:
-    def __init__(self, url, username, password, template_group, template_device, is_passhash=False):
+    def __init__(self, url, username, password, template_group=None, template_device=None, is_passhash=False):
         self.url = url
         self.username = username
         self.password = password
