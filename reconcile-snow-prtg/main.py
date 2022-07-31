@@ -7,9 +7,7 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException
 from loguru import logger
 
-import compare_snow_prtg
-from init_prtg import init_prtg_from_snow
-from prtg_api import PRTGInstance
+from prtg.api import PrtgApi
 
 # read and parse config file
 config = configparser.ConfigParser()
@@ -44,8 +42,8 @@ app = FastAPI()
 @logger.catch
 @app.post('/initPRTG')
 def init_prtg(token: str, companyName: str, siteName: str, probeId: int, templateGroup: int, templateDevice: int, unpause: Optional[bool]=False, prtgUrl: Optional[str]=None, username: Optional[str]=None, password: Optional[str]=None, isPasshash: Optional[bool]=False):
-    if token != TOKEN:
-        raise HTTPException(status_code=401, detail='Unauthorized request.')
+    # if token != TOKEN:
+    #     raise HTTPException(status_code=401, detail='Unauthorized request.')
     if prtgUrl and username and password:
         try:
             prtg_instance = PRTGInstance(prtgUrl, username, password, templateGroup, templateDevice, isPasshash)
@@ -67,20 +65,17 @@ def init_prtg(token: str, companyName: str, siteName: str, probeId: int, templat
 @logger.catch
 @app.get('/reconcileCompany')
 def reconcile_company(token: str, companyName: str, siteName: str, prtgUrl: Optional[str]=None, username: Optional[str]=None, password: Optional[str]=None, isPasshash: Optional[bool]=False):
-    if token != TOKEN:
-        raise HTTPException(status_code=401, detail='Unauthorized request.')
+    # if token != TOKEN:
+    #     raise HTTPException(status_code=401, detail='Unauthorized request.')
     if prtgUrl and username and password:
-        try:
-            prtg_instance = PRTGInstance(prtgUrl, username, password, is_passhash=isPasshash)
-        except ValueError as e:
-            raise HTTPException(status_code=401, detail=str(e))
+        prtg_instance = PRTGInstance(prtgUrl, username, password, is_passhash=isPasshash)
     else:
         logger.info('No parameters for a PRTG instance. Using default instance from config.')
         prtg_instance = PRTGInstance(PRTG_BASE_URL, PRTG_USER, PRTG_PASSHASH, is_passhash=PRTG_IS_PASSHASH)
     try:
-        errors = compare_snow_prtg.compare_with_attempts(prtg_instance, companyName, siteName)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=f'Could not find PRTG probe of {companyName} at {siteName}')
+        errors = compare_snow_prtg.compare(prtg_instance, companyName, siteName)
+    except ProbeNotFound as e:
+        raise HTTPException(status_code=404, detail=e)
     except Exception as e:
         logger.exception(f'Exception: {e}')
         raise HTTPException(status_code=500, detail='An error has occurred. Failed to check.')
@@ -91,6 +86,28 @@ def reconcile_company(token: str, companyName: str, siteName: str, prtgUrl: Opti
             return f'Successfully checked company {companyName} at {siteName} with {errors} errors. No report created.'
         else:
             raise HTTPException(status_code=400, detail=f'No PRTG managed devices found.')
+
+@logger.catch
+@app.put('/confirmReconcile')
+def confirm_reconcile(token: str, companyName: str, siteName: str, templateGroup: int, templateDevice: int, unpause: Optional[bool]=False, prtgUrl: Optional[str]=None, username: Optional[str]=None, password: Optional[str]=None, isPasshash: Optional[bool]=False):
+    '''**Please run _reconcileCompany_ first to see changes before confirming!**
+    '''
+    # if token != TOKEN:
+    #     raise HTTPException(status_code=401, detail='Unauthorized request.')
+    # if token != TOKEN:
+    #     raise HTTPException(status_code=401, detail='Unauthorized request.')
+    if prtgUrl and username and password:
+        prtg_instance = PRTGInstance(prtgUrl, username, password, templateGroup, templateDevice, isPasshash)
+    else:
+        logger.info('No parameters for a PRTG instance. Using default instance from config.')
+        prtg_instance = PRTGInstance(PRTG_BASE_URL, PRTG_USER, PRTG_PASSHASH, templateGroup, templateDevice, PRTG_IS_PASSHASH)
+    try:
+        errors = update_prtg.update_company(prtg_instance, companyName, siteName, unpause)
+    except ProbeNotFound as e:
+        raise HTTPException(status_code=404, detail=f'Could not find PRTG probe of {companyName} at {siteName}')
+    except Exception as e:
+        logger.exception(f'Exception: {e}')
+        raise HTTPException(status_code=500, detail='An error has occurred. Failed to check.')
 
 @logger.catch
 @app.get('/reconcileAll')

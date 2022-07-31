@@ -1,0 +1,82 @@
+# SNOW column name mappings
+# features fallback fields, combined fields,
+# and referenced fields
+mapping:
+  id: u_prtg_id
+  # a list of ordered fields to combine as the name
+  name:
+    fields:
+      - target: u_host_name
+        fallback:
+          - name: ip_address
+      - target: manufacturer
+        ref: true
+      - target: model_number
+        fallback:
+          - target: cmdb_model
+            ref: true
+    separator: ' '
+  host: 
+    target: u_host_name
+    # a list of ordered fields to use as fallback, i.e.
+    # in case a field is empty
+    fallback:
+      - target: ip_address
+  location: 
+    target: cmn_location
+    ref: true
+    subfield:
+      - target: street
+      - target: city
+      - target: state
+      - target: country
+        ref: true
+    separator: ', '
+  company: 
+    target: core_company
+    ref: true
+  filter:
+    - target: install_status
+      values:
+        - '1'
+        - '101'
+        - '107'
+    - target: u_prtg_implementation
+      values:
+        - 'true'
+    - target: u_cc_type
+      values:
+        - 'root'
+        - ''
+
+
+# Hierarchy of PRTG layout
+root:
+  probe:
+    # a list of ordered fields to combine as the name
+    name:
+      fields:
+        - '['
+        - target: company
+          ref: true
+        - '] '
+        - target: location
+          ref: true
+    group:
+      name:
+        fields:
+          - target: u_prtg_instrumentation
+            true: 
+              name: Computacenter Infrastructure
+              devices: true
+            false: 
+              name: Customer Managed Infrastructure
+              group:
+                name:
+                  fields:
+                    - target: u_used_for
+                group:
+                  name:
+                    fields:
+                      - target: sys_class_name
+                  devices: true

@@ -1,16 +1,23 @@
-import configparser
 from pathlib import PurePath
+
+import yaml
 from loguru import logger
-from pysnow.exceptions import NoResults, MultipleResults
+from pysnow.exceptions import MultipleResults, NoResults
 
 import email_report
 import snow_api
-from prtg_api import PRTGInstance
+from prtg.prtg_api import PRTGInstance
 
-# read and parse config file
-config = configparser.ConfigParser()
-config_path = PurePath(__file__).parent / 'config.ini'
-config.read(config_path)
+with open((PurePath(__file__).parent/'mapping.yaml')) as map_stream:
+    mapping = yaml.safe_load(map_stream)
+
+class SnowField:
+    def __init__(self, name: str, display_name: str, reference: bool=False, fallback=None, required: bool=True):
+        self.name = name
+        self.display_name = display_name
+        self.reference = reference
+        self.fallback = fallback
+        self.required = required
 
 def check_snow_fields(company_name, site_name):
     '''Check cmdb fields and warns if any are missing
@@ -28,23 +35,21 @@ def check_snow_fields(company_name, site_name):
     devices = snow_api.get_customer_cis_by_site(company_name, site_name)
     if not devices:
         raise ValueError(f'No prtg managed devices found for {company_name} at {site_name}')
+    # list of devices with missing field(s)
     missing_list = []
-    # list of referenced fields: (snow field name, display name, required)
-    ref_fields = (
-        ('manufacturer', 'Manufacturer', True),
-    )
-    # list of non-referenced fields
-    fields = (
-        ('u_category', 'Category (u_category)', True),
-        ('u_used_for', 'Used For', True),
-        ('u_priority', 'Priority', False),
-        ('u_credential_type', 'Credential Type', False),
-        ('u_host_name', 'Host Name', True),
-        ('ip_address', 'IP Address', False),
-        ('u_username', 'Username', False),
-        ('u_fs_password', 'FS Password', False),
-        ('model_number', 'Model Number', True)
-    )
+    # SNOW fields to be checked
+    fields = []
+    fields.append(SnowField('name', 'Name'))
+    fields.append(SnowField('sys_class_name', 'Class'))
+    fields.append(SnowField('u_used_for', 'Used For'))
+    fields.append(SnowField('u_host_name', 'Host Name', 
+                            fallback=SnowField('ip_address', 'IP Address')))
+    # TODO uncomment when SNOW field is implemented
+    # fields.append(SnowField('u_credential_type', 'Credential Type', required=False))
+    # fields.append(SnowField('u_username', 'Username', required=False))
+    # fields.append(SnowField('u_fs_password', 'FS Password', required=False))
+    # fields.append(SnowField('u_priority', 'Priority', required=False))
+
     for device in devices:
         missing = {
             'name': device['name'],
@@ -52,37 +57,43 @@ def check_snow_fields(company_name, site_name):
             'warnings': [],
             'errors': []
         }
-        # check referenced fields
-        for field, display_name, required in ref_fields:
-            try:
-                if not device[field]['display_value']:
-                    if required:
-                        missing['errors'].append(display_name)
+        i = 0
+        temp_fields = fields.copy()
+        while i < len(temp_fields):
+            # check referenced fields
+            if temp_fields[i].reference:
+                try:
+                    if not device[temp_fields[i].name]['display_value']:
+                        if temp_fields[i].fallback:
+                            temp_fields.append(temp_fields[i].fallback)
+                            i += 1
+                            continue
+                        if temp_fields[i].required:
+                            missing['errors'].append(temp_fields[i].display_name)
+                        else:
+                            missing['warnings'].append(temp_fields[i].display_name)
+                except (TypeError, KeyError):
+                    if temp_fields[i].fallback:
+                        temp_fields.append(temp_fields[i].fallback)
+                        i += 1
+                        continue
+                    if temp_fields[i].required:
+                            missing['errors'].append(temp_fields[i].display_name)
                     else:
-                        missing['warnings'].append(display_name)
-            except (TypeError, KeyError):
-                if required:
-                        missing['errors'].append(display_name)
-                else:
-                    missing['warnings'].append(display_name)
-        # check non-referenced fields
-        for field, display_name, required in fields:
-            if field not in device or not device[field]:
-                if required:
-                    missing['errors'].append(display_name)
-                else:
-                    missing['warnings'].append(display_name)
-        # remove required name if virtual device
-        try:
-            if device['u_category'] == 'Virtualization':
-                if 'Manufacturer' in missing['errors']:
-                    missing['errors'].remove('Manufacturer')
-                    missing['warnings'].append('Manufacturer')
-                if 'Model Number' in missing['errors']:
-                    missing['errors'].remove('Model Number')
-                    missing['warnings'].append('Model Number')
-        except KeyError:
-            pass
+                        missing['warnings'].append(temp_fields[i].display_name)
+            # check non-referenced fields
+            else:
+                if temp_fields[i].name not in device or not device[temp_fields[i].name]:
+                    if temp_fields[i].fallback:
+                        temp_fields.append(temp_fields[i].fallback)
+                        i += 1
+                        continue
+                    if temp_fields[i].required:
+                        missing['errors'].append(temp_fields[i].display_name)
+                    else:
+                        missing['warnings'].append(temp_fields[i].display_name)
+            i += 1
+
         if missing['errors'] or missing['warnings']:
             missing_list.append(missing)
     return missing_list
@@ -125,23 +136,23 @@ def init_prtg_from_snow(prtg_instance: PRTGInstance, company_name, site_name, pr
         else:
             logger.warning(f'Missing optional fields from cmdb records from {company_name} at {site_name}. Continuing PRTG initialization...')
     # Comment when probe device is set. Each Site will have their own probe and as a result, the root group is already made. Add 'root_id = id'
-    # root_name = f'[{company["name"]}] {location["name"]}' #TODO use u_site_name when it is consistent (instead of 'name' field)
-    # root_id = prtg_instance.add_group(root_name, probe_id)
-    # prtg_instance.resume_object(root_id)
+    root_name = f'[{company["name"]}] {location["name"]}' #TODO use u_site_name when it is consistent (instead of 'name' field)
+    root_id = prtg_instance.add_group(root_name, probe_id)
+    prtg_instance.resume_object(root_id)
     
     # turn off location inheritance
-    # prtg_instance.edit_inherit_location(root_id, 0)
+    prtg_instance.edit_inherit_location(root_id, 0)
 
-    root_id = probe_id
+    # root_id = probe_id
 
     # add location to root group
     try:
         country = snow_api.get_record(location['u_country']['link'])
-        prtg_instance.edit_location(root_id, ', '.join((location['street'], location['city'], location['state'], country['result']['name'])))
+        prtg_instance.edit_location(root_id, ', '.join((location['street'].replace('\r\n', ' '), location['city'].replace('\r\n', ' '), location['state'].replace('\r\n', ' '), country['result']['name'].replace('\r\n', ' '))))
     except TypeError:
         logger.warning(f'Tried to access record but field u_country is string: {location["u_country"]}')
         logger.warning(f'Adding only street, city, and state/province to location field. Manual adding of country may be required in order for geo map to work: {prtg_instance.device_url(root_id)}')
-        prtg_instance.edit_location(root_id, ', '.join((location['street'], location['city'], location['state'])))
+        prtg_instance.edit_location(root_id, ', '.join((location['street'].replace('\r\n', ' '), location['city'].replace('\r\n', ' '), location['state'].replace('\r\n', ' '))))
 
     # add service url, i.e. link to ServiceNow configuration item
     prtg_instance.edit_service_url(root_id, snow_api.ci_url(location['sys_id']))
@@ -154,34 +165,29 @@ def init_prtg_from_snow(prtg_instance: PRTGInstance, company_name, site_name, pr
     prtg_instance.resume_object(cc_inf_id)
     snow_internal_cis = snow_api.get_internal_cis_by_site(company_name, site_name)
     for ci in snow_internal_cis:
+        # parse snow fields
         try:
-            host_name = ci['u_host_name']
+            access = ci['ip_address']
         except KeyError:
-            logger.warning('Could not find hostname, falling back to IP address.')
-            host_name = ci['ip_address']
+            logger.warning('Could not find IP address, falling back to hostname.')
+            access = ci['u_host_name']
         else:
-            if not host_name:
-                host_name = ci['ip_address']
-        if not host_name:
-            logger.error(f'Host Name field is empty. Device {ci["name"]} cannot be initialized.')
+            if not access:
+                access = ci['u_host_name']
+        if not access:
+            logger.error(f'IP address and host name field cannot be found. Device {ci["name"]} cannot be initialized.')
             continue
-        # parse snow field references
         try:
             manuf_ci = snow_api.get_record(ci['manufacturer']['link'])['result']['name']
         except TypeError:
             logger.warning(f'Tried to access record but field manufacturer is string: {ci["manufacturer"]}')
             manuf_ci = ci['manufacturer']
-        finally:
-            if not manuf_ci:
-                logger.error(f'Manufacturer field is empty. Device {ci["name"]} cannot be initialized.')
-                continue
-        model_ci = ci['model_number']
-        if not model_ci:
-            logger.error(f'Model Number field is empty. Device {ci["name"]} cannot be initialized.')
-            continue
-        # construct name, replacing spaces with hyphens
-        device_name = ' '.join((host_name.replace(' ', '-'), manuf_ci.replace(' ', '-'), model_ci.replace(' ', '-')))
-        device_id = prtg_instance.add_device(device_name, cc_inf_id, ci['ip_address'])
+        except KeyError as e:
+            logger.debug(snow_api.get_record(ci['manufacturer']['link']))
+            manuf_ci = ''
+        device_name = ci['name']
+        device_id = prtg_instance.add_device(device_name, cc_inf_id, access)
+        snow_api.update_prtg_id(ci['sys_id'], device_id)
         if resume:
             prtg_instance.resume_object(device_id)
         # edit icon to device
@@ -204,53 +210,50 @@ def init_prtg_from_snow(prtg_instance: PRTGInstance, company_name, site_name, pr
     prtg_instance.resume_object(cust_mng_inf_id)
     
     # create devices based on stage -> type category -> device
+    cis = snow_api.get_customer_cis_by_site(company_name, site_name)
+    ordered_ci = {}
     for stage in snow_api.get_u_used_for_labels():
-        # reset stage group
-        stage_id = 0
-        for category in snow_api.get_u_category_labels():
-            snow_cis = snow_api.get_cis_filtered(company['name'], location['name'], category, stage)
-            # create stage and category only if there are devices
-            if snow_cis:
-                if not stage_id:
-                    stage_id = prtg_instance.add_group(stage, cust_mng_inf_id)
-                    prtg_instance.resume_object(stage_id)
-                category_id = prtg_instance.add_group(category, stage_id)
-                prtg_instance.resume_object(category_id)
-                for ci in snow_cis:
+        ordered_ci[stage] = {}
+    for ci in cis:
+        logger.debug(f'Adding device {ci["name"]}')
+        try:
+            ordered_ci[ci['u_used_for']][ci['sys_class_name']].append(ci)
+        except KeyError:
+            ordered_ci[ci['u_used_for']][ci['sys_class_name']] = [ci]
+    for stage, class_list in ordered_ci.items():
+        if class_list:
+            stage_id = prtg_instance.add_group(stage, cust_mng_inf_id)
+            prtg_instance.resume_object(stage_id)
+            for class_name, devices in class_list.items():
+                class_id = prtg_instance.add_group(class_name, stage_id)
+                prtg_instance.resume_object(class_id)
+                for ci in sorted(devices, key=lambda x: x['name']):
                     try:
-                        host_name = ci['u_host_name']
+                        access = ci['ip_address']
                     except KeyError:
-                        logger.warning('Could not find hostname, falling back to IP address.')
-                        host_name = ci['ip_address']
+                        logger.warning('Could not find IP address, falling back to hostname.')
+                        access = ci['u_host_name']
                     else:
-                        if not host_name:
-                            host_name = ci['ip_address']
-                    if not host_name:
-                        logger.error(f'Host Name field is empty. Device {ci["name"]} cannot be initialized.')
+                        if not access:
+                            access = ci['u_host_name']
+                    if not access:
+                        logger.error(f'IP address and host name field cannot be found. Device {ci["name"]} cannot be initialized.')
                         continue
-                    # parse snow field references
                     try:
                         manuf_ci = snow_api.get_record(ci['manufacturer']['link'])['result']['name']
                     except TypeError:
                         logger.warning(f'Tried to access record but field manufacturer is string: {ci["manufacturer"]}')
                         manuf_ci = ci['manufacturer']
-                    finally:
-                        if not manuf_ci:
-                            if category != 'Virtualization':
-                                logger.error(f'Manufacturer field is empty. Device {ci["name"]} cannot be initialized.')
-                                continue
-                    model_ci = ci['model_number']
-                    if not model_ci:
-                        if category != 'Virtualization':
-                            logger.error(f'Model Number field is empty. Device {ci["name"]} cannot be initialized.')
-                            continue
-                    # construct name, replacing spaces with hyphens
-                    device_name = ' '.join((host_name.replace(' ', '-'), manuf_ci.replace(' ', '-'), model_ci.replace(' ', '-')))
-                    device_id = prtg_instance.add_device(device_name, category_id, ci['ip_address'])
+                    except KeyError as e:
+                        logger.debug(snow_api.get_record(ci['manufacturer']['link']))
+                        manuf_ci = ''
+                    device_name = ci['name']
+                    device_id = prtg_instance.add_device(device_name, class_id, access)
+                    snow_api.update_prtg_id(ci['sys_id'], device_id)
                     if resume:
                         prtg_instance.resume_object(device_id)
                     # edit icon to device
-                    prtg_instance.edit_icon(device_id, manuf_ci, category)
+                    prtg_instance.edit_icon(device_id, manuf_ci, class_name.replace(' ', '_'))
                     # add service url (link to snow record)
                     snow_link = snow_api.ci_url(ci['sys_id'])
                     prtg_instance.edit_service_url(device_id, snow_link)
@@ -307,7 +310,7 @@ def init_prtg_from_snow(prtg_instance: PRTGInstance, company_name, site_name, pr
                     # prtg_instance.edit_priority(device_id, ci['priority'])
 
                     # add tags to device
-                    prtg_instance.edit_tags(device_id, [stage, category])
+                    prtg_instance.edit_tags(device_id, [stage, class_name.replace(' ', '-')])
 
                     # add device for reporting
                     created.append({

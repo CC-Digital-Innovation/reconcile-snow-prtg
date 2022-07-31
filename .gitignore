@@ -1,4 +1,6 @@
 **/__pycache__/
 .theia/
 venv/
-config.ini
+**/config.ini
+.history/
+.vscode/

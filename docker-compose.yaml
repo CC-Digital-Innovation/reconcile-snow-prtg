@@ -1,7 +1,8 @@
 version: '3.7'
 services:
   reconcile-snow-prtg:
-    image: ccfs/reconile-snow-prtg:latest
+    image: reconile-snow-prtg
+    build: .
     labels:
       # edit to correct hostname
       caddy: api.example.com

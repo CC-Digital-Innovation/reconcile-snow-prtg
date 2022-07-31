@@ -1,22 +1,23 @@
-import configparser
-from pathlib import PurePath
-
 import pysnow
 import requests
 from loguru import logger
 
-# read and parse config file
-config = configparser.ConfigParser()
-config_path = PurePath(__file__).parent / 'config.ini'
-config.read(config_path)
+from config import config
 
 # service now client
 snow_client = pysnow.Client(instance=config['snow']['snow_instance'], user=config['snow']['api_user'], password=config['snow']['api_password'])
 
-def get_u_category_labels():
+def update_prtg_id(sys_id, prtg_id):
+    '''Update PRTG ID field of SNOW record'''
+    update = {'u_prtg_id': prtg_id}
+    cis = snow_client.resource(api_path='/table/cmdb_ci')
+    update_record = cis.update(query={'sys_id': sys_id}, payload=update)
+    return update_record['u_prtg_id'] == prtg_id
+
+def get_sys_class_name_labels():
     '''Returns a list of all device categories'''
     choices = snow_client.resource(api_path='/table/sys_choice')
-    categories = choices.get(query={'element': 'u_category'})
+    categories = choices.get(query={'element': 'sys_class_name'})
     return sorted({category['label'] for category in categories.all()})
 
 def get_u_used_for_labels():
@@ -54,10 +55,10 @@ def get_company(company_name):
     Raise
     -----
     pysnow.exceptions.MultipleResults
-        Could not find record
+        More than one record found
 
     pysnow.exceptions.NoResults
-        More than one record found
+        Could not find record
     '''
     companies = snow_client.resource(api_path='/table/core_company')
     query = (
@@ -74,10 +75,10 @@ def get_location(site_name):
     Raise
     -----
     pysnow.exceptions.MultipleResults
-        Could not find record
+        More than one record found
 
     pysnow.exceptions.NoResults
-        More than one record found
+        Could not find record
     '''
     locations = snow_client.resource(api_path='/table/cmn_location')
     #TODO use u_site_name when it is consistent (instead of 'name' field)
@@ -113,9 +114,10 @@ def get_cis_filtered(company_name, location, category, stage):
         .OR().field('install_status').equals('101')     # Active
         .OR().field('install_status').equals('107')     # Duplicate installed
         .AND().field('location.name').equals(location)
-        .AND().field('u_category').equals(category)
+        .AND().field('sys_class_name').equals(category)
         .AND().field('u_used_for').equals(stage)
         .AND().field('u_cc_type').equals('root')
+        .OR().field('u_cc_type').is_empty()
         .AND().field('u_prtg_implementation').equals('true')
         .AND().field('u_prtg_instrumentation').equals('false')
     )
@@ -135,6 +137,7 @@ def get_cis_by_site(company_name, site_name):
         .OR().field('install_status').equals('107')     # Duplicate installed
         .AND().field('location.name').equals(site_name)
         .AND().field('u_cc_type').equals('root')
+        .OR().field('u_cc_type').is_empty()
         .AND().field('u_prtg_implementation').equals('true')
     )
     response = cis.get(query=query)
@@ -153,6 +156,7 @@ def get_internal_cis_by_site(company_name, site_name):
         .OR().field('install_status').equals('107')     # Duplicate installed
         .AND().field('location.name').equals(site_name)
         .AND().field('u_cc_type').equals('root')
+        .OR().field('u_cc_type').is_empty()
         .AND().field('u_prtg_implementation').equals('true')
         .AND().field('u_prtg_instrumentation').equals('true')
     )
@@ -172,6 +176,7 @@ def get_customer_cis_by_site(company_name, site_name):
         .OR().field('install_status').equals('107')     # Duplicate installed
         .AND().field('location.name').equals(site_name)
         .AND().field('u_cc_type').equals('root')
+        .OR().field('u_cc_type').is_empty()
         .AND().field('u_prtg_implementation').equals('true')
         .AND().field('u_prtg_instrumentation').equals('false')
     )

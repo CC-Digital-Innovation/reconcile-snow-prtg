@@ -18,7 +18,7 @@ password = config['email']['password']
 sender_email = config['email']['from']
 receiver = config['email']['to']
 
-context = ssl.create_default_context()
+context = ssl._create_unverified_context()
 
 def send_email(subject, message):
     # create message
