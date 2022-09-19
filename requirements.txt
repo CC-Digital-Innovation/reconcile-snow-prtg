@@ -12,7 +12,7 @@ isort==5.8.0
 lazy-object-proxy==1.5.2
 loguru==0.5.3
 mccabe==0.6.1
-oauthlib==3.1.1
+oauthlib==3.2.1
 pydantic==1.8.2
 pylint==2.7.2
 pysnow==0.7.17
