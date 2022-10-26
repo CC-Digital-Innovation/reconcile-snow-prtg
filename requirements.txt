@@ -15,6 +15,7 @@ mccabe==0.6.1
 oauthlib==3.2.1
 pydantic==1.8.2
 pylint==2.7.2
+pyprtg-api==0.0.7
 pysnow==0.7.17
 python-magic==0.4.24
 pytz==2019.3
