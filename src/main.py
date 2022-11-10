@@ -39,8 +39,8 @@ app = FastAPI()
 @logger.catch
 @app.post('/initPRTG')
 def init_prtg_req(token: str, companyName: str, siteName: str, probeId: int, templateGroup: int, templateDevice: int, unpause: Optional[bool]=False, siteIsProbe: Optional[bool]=False, prtgUrl: Optional[str]=None, username: Optional[str]=None, password: Optional[str]=None, isPasshash: Optional[bool]=False):
-    # if token != TOKEN:
-    #     raise HTTPException(status_code=401, detail='Unauthorized request.')
+    if token != TOKEN:
+        raise HTTPException(status_code=401, detail='Unauthorized request.')
     if prtgUrl and username and password:
         try:
             prtg_instance = PrtgApi(prtgUrl, username, password, templateGroup, templateDevice, isPasshash)
@@ -62,8 +62,8 @@ def init_prtg_req(token: str, companyName: str, siteName: str, probeId: int, tem
 @logger.catch
 @app.get('/reconcileCompany')
 def reconcile_company(token: str, companyName: str, siteName: str, siteIsProbe: Optional[bool]=False, prtgUrl: Optional[str]=None, username: Optional[str]=None, password: Optional[str]=None, isPasshash: Optional[bool]=False):
-    # if token != TOKEN:
-    #     raise HTTPException(status_code=401, detail='Unauthorized request.')
+    if token != TOKEN:
+        raise HTTPException(status_code=401, detail='Unauthorized request.')
     if prtgUrl and username and password:
         prtg_instance = PrtgApi(prtgUrl, username, password, is_passhash=isPasshash)
     else:
@@ -89,10 +89,8 @@ def reconcile_company(token: str, companyName: str, siteName: str, siteIsProbe: 
 def confirm_reconcile(token: str, companyName: str, siteName: str, templateGroup: int, templateDevice: int, unpause: Optional[bool]=False, siteIsProbe: Optional[bool]=False, prtgUrl: Optional[str]=None, username: Optional[str]=None, password: Optional[str]=None, isPasshash: Optional[bool]=False):
     '''**Please run _reconcileCompany_ first to see changes before confirming!**
     '''
-    # if token != TOKEN:
-    #     raise HTTPException(status_code=401, detail='Unauthorized request.')
-    # if token != TOKEN:
-    #     raise HTTPException(status_code=401, detail='Unauthorized request.')
+    if token != TOKEN:
+        raise HTTPException(status_code=401, detail='Unauthorized request.')
     if prtgUrl and username and password:
         prtg_instance = PrtgApi(prtgUrl, username, password, templateGroup, templateDevice, isPasshash)
     else:
