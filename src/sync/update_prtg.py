@@ -13,11 +13,21 @@ def update_company(prtg_instance: PrtgApi, company_name, site_name, resume, site
     # get snow devices
     snow_cis = snow_api.get_cis_by_site(company_name, site_name)
     # get prtg devices
-    probe_name = f'[{company_name}] {site_name}' if site_probe else company_name
-
-    try:
-        probe = prtg_instance.get_probe_by_name(probe_name)
-    except ObjectNotFound:
+    probe_name = f'[{company_name}] {site_name}'
+    if site_probe:
+        try:
+            probe = prtg_instance.get_probe_by_name(probe_name)
+        except ObjectNotFound:
+            logger.warning(f'Could not find probe with name {probe_name}. Finding group instead...')
+            try:
+                probe = prtg_instance.get_group_by_name(probe_name)
+            except ObjectNotFound:
+                # SNOW configuration items exist but missing probe
+                if snow_cis:
+                    raise ObjectNotFound(f'Could not find PRTG probe of company {company_name} at {site_name}')
+                # else not prtg managed
+                return
+    else:
         try:
             probe = prtg_instance.get_group_by_name(probe_name)
         except ObjectNotFound:
