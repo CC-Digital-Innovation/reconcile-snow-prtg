@@ -60,10 +60,21 @@ def compare(prtg_instance: PrtgApi, company_name, site_name, site_probe=False):
     # get snow devices
     snow_cis = snow_api.get_cis_by_site(company_name, site_name)
     # get prtg devices
-    probe_name = f'[{company_name}] {site_name}' if site_probe else company_name
-    try:
-        probe = prtg_instance.get_probe_by_name(probe_name)
-    except ObjectNotFound:
+    probe_name = f'[{company_name}] {site_name}'
+    if site_probe:
+        try:
+            probe = prtg_instance.get_probe_by_name(probe_name)
+        except ObjectNotFound:
+            logger.warning(f'Could not find probe with name {probe_name}. Finding group instead...')
+            try:
+                probe = prtg_instance.get_group_by_name(probe_name)
+            except ObjectNotFound:
+                # SNOW configuration items exist but missing probe
+                if snow_cis:
+                    raise ObjectNotFound(f'Could not find PRTG probe of company {company_name} at {site_name}')
+                # else not prtg managed
+                return
+    else:
         try:
             probe = prtg_instance.get_group_by_name(probe_name)
         except ObjectNotFound:
@@ -97,9 +108,9 @@ def compare(prtg_instance: PrtgApi, company_name, site_name, site_probe=False):
         # location
         try:
             location_ci = snow_api.get_record(snow_ci['location']['link'])['result']
-            s_street = location_ci['street'].replace('\r\n', ' ')
-            s_city = location_ci['city'].replace('\r\n', ' ')
-            s_state = location_ci['state'].replace('\r\n', ' ')
+            s_street = location_ci['street'].replace('\r\n', ' ').strip()
+            s_city = location_ci['city'].replace('\r\n', ' ').strip()
+            s_state = location_ci['state'].replace('\r\n', ' ').strip()
             try:
                 s_country = snow_api.get_record(location_ci['u_country']['link'])['result']['name']
             except TypeError:
