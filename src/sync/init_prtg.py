@@ -8,6 +8,7 @@ from pysnow.exceptions import MultipleResults, NoResults
 import report
 from snow import snow_api
 
+
 class SnowField:
     def __init__(self, name: str, display_name: str, reference: bool=False, fallback=None, required: bool=True):
         self.name = name
@@ -37,7 +38,7 @@ def check_snow_fields(company_name, site_name):
     # SNOW fields to be checked
     fields = []
     fields.append(SnowField('name', 'Name'))
-    fields.append(SnowField('u_category', 'Category'))
+    fields.append(SnowField('u_category', 'Category', required=False))
     fields.append(SnowField('u_used_for', 'Used For'))
     fields.append(SnowField('u_host_name', 'Host Name', 
                             fallback=SnowField('ip_address', 'IP Address')))
