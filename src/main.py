@@ -1,8 +1,10 @@
 import logging.handlers
+import secrets
 import sys
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi.security import APIKeyHeader
 from loguru import logger
 
 from config import config
@@ -33,14 +35,21 @@ def set_log_level(log_level):
             logger.add(logging.handlers.SysLogHandler(address = (SYSLOG_HOST, SYSLOG_PORT)), level=log_level)
 
 set_log_level(LOG_LEVEL)
+
+api_key = APIKeyHeader(name='X-API-Key')
+
+def authorize(key: str = Depends(api_key)):
+    if not secrets.compare_digest(key, TOKEN):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail='Invalid token')
+
 logger.info('Starting up XSAutomate API...')
 app = FastAPI()
 
 @logger.catch
-@app.post('/initPRTG')
-def init_prtg_req(token: str, companyName: str, siteName: str, probeId: int, templateGroup: int, templateDevice: int, unpause: bool=False, siteIsProbe: bool=False, prtgUrl: Optional[str]=None, username: Optional[str]=None, password: Optional[str]=None, isPasshash: bool=False):
-    if token != TOKEN:
-        raise HTTPException(status_code=401, detail='Unauthorized request.')
+@app.post('/initPRTG', dependencies=[Depends(authorize)])
+def init_prtg_req(companyName: str, siteName: str, probeId: int, templateGroup: int, templateDevice: int, unpause: bool=False, siteIsProbe: bool=False, prtgUrl: Optional[str]=None, username: Optional[str]=None, password: Optional[str]=None, isPasshash: bool=False):
     if prtgUrl and username and password:
         try:
             prtg_instance = PrtgApi(prtgUrl, username, password, templateGroup, templateDevice, isPasshash)
@@ -60,10 +69,8 @@ def init_prtg_req(token: str, companyName: str, siteName: str, probeId: int, tem
         return 'Successfully initialized PRTG devices from SNOW.'
 
 @logger.catch
-@app.get('/reconcileCompany')
-def reconcile_company(token: str, companyName: str, siteName: str, siteIsProbe: bool=False, prtgUrl: Optional[str]=None, username: Optional[str]=None, password: Optional[str]=None, isPasshash: bool=False):
-    if token != TOKEN:
-        raise HTTPException(status_code=401, detail='Unauthorized request.')
+@app.get('/reconcileCompany', dependencies=[Depends(authorize)])
+def reconcile_company(companyName: str, siteName: str, siteIsProbe: bool=False, prtgUrl: Optional[str]=None, username: Optional[str]=None, password: Optional[str]=None, isPasshash: bool=False):
     if prtgUrl and username and password:
         prtg_instance = PrtgApi(prtgUrl, username, password, is_passhash=isPasshash)
     else:
@@ -85,12 +92,10 @@ def reconcile_company(token: str, companyName: str, siteName: str, siteIsProbe: 
             raise HTTPException(status_code=400, detail=f'No PRTG managed devices found.')
 
 @logger.catch
-@app.put('/confirmReconcile')
-def confirm_reconcile(token: str, companyName: str, siteName: str, templateGroup: int, templateDevice: int, unpause: Optional[bool]=False, siteIsProbe: bool=False, prtgUrl: Optional[str]=None, username: Optional[str]=None, password: Optional[str]=None, isPasshash: bool=False):
+@app.put('/confirmReconcile', dependencies=[Depends(authorize)])
+def confirm_reconcile(companyName: str, siteName: str, templateGroup: int, templateDevice: int, unpause: Optional[bool]=False, siteIsProbe: bool=False, prtgUrl: Optional[str]=None, username: Optional[str]=None, password: Optional[str]=None, isPasshash: bool=False):
     '''**Please run _reconcileCompany_ first to see changes before confirming!**
     '''
-    if token != TOKEN:
-        raise HTTPException(status_code=401, detail='Unauthorized request.')
     if prtgUrl and username and password:
         prtg_instance = PrtgApi(prtgUrl, username, password, templateGroup, templateDevice, isPasshash)
     else:
@@ -105,10 +110,8 @@ def confirm_reconcile(token: str, companyName: str, siteName: str, templateGroup
         raise HTTPException(status_code=500, detail='An error has occurred. Failed to check.')
 
 @logger.catch
-@app.get('/reconcileAll')
-def reconcile_all(token: str, prtgUrl: Optional[str]=None, username: Optional[str]=None, password: Optional[str]=None, isPasshash: bool=False):
-    if token != TOKEN:
-        raise HTTPException(status_code=401, detail='Unauthorized request.')
+@app.get('/reconcileAll', dependencies=[Depends(authorize)])
+def reconcile_all(prtgUrl: Optional[str]=None, username: Optional[str]=None, password: Optional[str]=None, isPasshash: bool=False):
     if prtgUrl and username and password:
         try:
             prtg_instance = PrtgApi(prtgUrl, username, password, is_passhash=isPasshash)
