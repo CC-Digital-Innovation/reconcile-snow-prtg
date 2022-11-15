@@ -6,6 +6,7 @@ from typing import Optional
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.security import APIKeyHeader
 from loguru import logger
+from pydantic import SecretStr
 
 from config import config
 from sync import compare_snow_prtg, init_prtg, update_prtg
@@ -49,15 +50,28 @@ app = FastAPI()
 
 @logger.catch
 @app.post('/initPRTG', dependencies=[Depends(authorize)])
-def init_prtg_req(companyName: str, siteName: str, probeId: int, templateGroup: int, templateDevice: int, unpause: bool=False, siteIsProbe: bool=False, prtgUrl: Optional[str]=None, username: Optional[str]=None, password: Optional[str]=None, isPasshash: bool=False):
+def init_prtg_req(companyName: str, 
+                  siteName: str, 
+                  probeId: int, 
+                  templateGroup: int, 
+                  templateDevice: int, 
+                  unpause: bool=False, 
+                  siteIsProbe: bool=False, 
+                  prtgUrl: Optional[str]=None, 
+                  username: Optional[str]=None, 
+                  password: Optional[SecretStr]=None, 
+                  isPasshash: bool=False,
+                  httpsVerify: bool=True):
     if prtgUrl and username and password:
         try:
-            prtg_instance = PrtgApi(prtgUrl, username, password, templateGroup, templateDevice, isPasshash)
+            # custom PRTG instance
+            prtg_instance = PrtgApi(prtgUrl, username, password.get_secret_value(), templateGroup, templateDevice, isPasshash, httpsVerify)
         except ValueError as e:
             raise HTTPException(status_code=401, detail=str(e))
     else:
+        # default PRTG instance
         logger.info('No parameters for a PRTG instance. Using default instance from config.')
-        prtg_instance = PrtgApi(PRTG_BASE_URL, PRTG_USER, PRTG_PASSHASH, templateGroup, templateDevice, PRTG_IS_PASSHASH)
+        prtg_instance = PrtgApi(PRTG_BASE_URL, PRTG_USER, PRTG_PASSHASH, templateGroup, templateDevice, PRTG_IS_PASSHASH, httpsVerify)
     try:
         response = init_prtg.init_prtg_from_snow(prtg_instance, companyName, siteName, probeId, unpause, siteIsProbe)
     except Exception as e:
@@ -70,12 +84,21 @@ def init_prtg_req(companyName: str, siteName: str, probeId: int, templateGroup: 
 
 @logger.catch
 @app.get('/reconcileCompany', dependencies=[Depends(authorize)])
-def reconcile_company(companyName: str, siteName: str, siteIsProbe: bool=False, prtgUrl: Optional[str]=None, username: Optional[str]=None, password: Optional[str]=None, isPasshash: bool=False):
+def reconcile_company(companyName: str, 
+                      siteName: str, 
+                      siteIsProbe: bool=False, 
+                      prtgUrl: Optional[str]=None, 
+                      username: Optional[str]=None, 
+                      password: Optional[SecretStr]=None, 
+                      isPasshash: bool=False,
+                      httpsVerify: bool=True):
     if prtgUrl and username and password:
-        prtg_instance = PrtgApi(prtgUrl, username, password, is_passhash=isPasshash)
+        # customer PRTG instance
+        prtg_instance = PrtgApi(prtgUrl, username, password.get_secret_value(), is_passhash=isPasshash, requests_verify=httpsVerify)
     else:
+        # default PRTG instance
         logger.info('No parameters for a PRTG instance. Using default instance from config.')
-        prtg_instance = PrtgApi(PRTG_BASE_URL, PRTG_USER, PRTG_PASSHASH, is_passhash=PRTG_IS_PASSHASH)
+        prtg_instance = PrtgApi(PRTG_BASE_URL, PRTG_USER, PRTG_PASSHASH, is_passhash=PRTG_IS_PASSHASH, requests_verify=httpsVerify)
     try:
         errors = compare_snow_prtg.compare(prtg_instance, companyName, siteName, siteIsProbe)
     except ObjectNotFound as e:
@@ -93,14 +116,26 @@ def reconcile_company(companyName: str, siteName: str, siteIsProbe: bool=False, 
 
 @logger.catch
 @app.put('/confirmReconcile', dependencies=[Depends(authorize)])
-def confirm_reconcile(companyName: str, siteName: str, templateGroup: int, templateDevice: int, unpause: Optional[bool]=False, siteIsProbe: bool=False, prtgUrl: Optional[str]=None, username: Optional[str]=None, password: Optional[str]=None, isPasshash: bool=False):
+def confirm_reconcile(companyName: str, 
+                      siteName: str, 
+                      templateGroup: int, 
+                      templateDevice: int, 
+                      unpause: Optional[bool]=False, 
+                      siteIsProbe: bool=False, 
+                      prtgUrl: Optional[str]=None, 
+                      username: Optional[str]=None, 
+                      password: Optional[SecretStr]=None, 
+                      isPasshash: bool=False,
+                      httpsVerify: bool=True):
     '''**Please run _reconcileCompany_ first to see changes before confirming!**
     '''
     if prtgUrl and username and password:
-        prtg_instance = PrtgApi(prtgUrl, username, password, templateGroup, templateDevice, isPasshash)
+        # custom PRTG instance
+        prtg_instance = PrtgApi(prtgUrl, username, password.get_secret_value(), templateGroup, templateDevice, isPasshash, httpsVerify)
     else:
+        # default PRTG instance
         logger.info('No parameters for a PRTG instance. Using default instance from config.')
-        prtg_instance = PrtgApi(PRTG_BASE_URL, PRTG_USER, PRTG_PASSHASH, templateGroup, templateDevice, PRTG_IS_PASSHASH)
+        prtg_instance = PrtgApi(PRTG_BASE_URL, PRTG_USER, PRTG_PASSHASH, templateGroup, templateDevice, PRTG_IS_PASSHASH, httpsVerify)
     try:
         errors = update_prtg.update_company(prtg_instance, companyName, siteName, unpause, siteIsProbe)
     except ObjectNotFound as e:
@@ -110,16 +145,22 @@ def confirm_reconcile(companyName: str, siteName: str, templateGroup: int, templ
         raise HTTPException(status_code=500, detail='An error has occurred. Failed to check.')
 
 @logger.catch
-@app.get('/reconcileAll', dependencies=[Depends(authorize)])
-def reconcile_all(prtgUrl: Optional[str]=None, username: Optional[str]=None, password: Optional[str]=None, isPasshash: bool=False):
+@app.get('/reconcileAll', dependencies=[Depends(authorize)], include_in_schema=False)
+def reconcile_all(prtgUrl: Optional[str]=None, 
+                  username: Optional[str]=None, 
+                  password: Optional[SecretStr]=None, 
+                  isPasshash: bool=False,
+                  httpsVerify: bool=True):
     if prtgUrl and username and password:
         try:
-            prtg_instance = PrtgApi(prtgUrl, username, password, is_passhash=isPasshash)
+            # custom PRTG instance
+            prtg_instance = PrtgApi(prtgUrl, username, password.get_secret_value(), is_passhash=isPasshash, requests_verify=httpsVerify)
         except ValueError as e:
             raise HTTPException(status_code=401, detail=str(e))
     else:
+        # default PRTG instance
         logger.info('No parameters for a PRTG instance. Using default instance from config.')
-        prtg_instance = PrtgApi(PRTG_BASE_URL, PRTG_USER, PRTG_PASSHASH, is_passhash=PRTG_IS_PASSHASH)
+        prtg_instance = PrtgApi(PRTG_BASE_URL, PRTG_USER, PRTG_PASSHASH, is_passhash=PRTG_IS_PASSHASH, requests_verify=httpsVerify)
     try:
         compare_snow_prtg.compare_all(prtg_instance)
         return 'Successfully checked all company sites. Reports will be sent out momentarily.'
