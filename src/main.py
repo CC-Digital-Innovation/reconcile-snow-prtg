@@ -38,7 +38,7 @@ app = FastAPI()
 
 @logger.catch
 @app.post('/initPRTG')
-def init_prtg_req(token: str, companyName: str, siteName: str, probeId: int, templateGroup: int, templateDevice: int, unpause: Optional[bool]=False, siteIsProbe: Optional[bool]=False, prtgUrl: Optional[str]=None, username: Optional[str]=None, password: Optional[str]=None, isPasshash: Optional[bool]=False):
+def init_prtg_req(token: str, companyName: str, siteName: str, probeId: int, templateGroup: int, templateDevice: int, unpause: bool=False, siteIsProbe: bool=False, prtgUrl: Optional[str]=None, username: Optional[str]=None, password: Optional[str]=None, isPasshash: bool=False):
     if token != TOKEN:
         raise HTTPException(status_code=401, detail='Unauthorized request.')
     if prtgUrl and username and password:
@@ -61,7 +61,7 @@ def init_prtg_req(token: str, companyName: str, siteName: str, probeId: int, tem
 
 @logger.catch
 @app.get('/reconcileCompany')
-def reconcile_company(token: str, companyName: str, siteName: str, siteIsProbe: Optional[bool]=False, prtgUrl: Optional[str]=None, username: Optional[str]=None, password: Optional[str]=None, isPasshash: Optional[bool]=False):
+def reconcile_company(token: str, companyName: str, siteName: str, siteIsProbe: bool=False, prtgUrl: Optional[str]=None, username: Optional[str]=None, password: Optional[str]=None, isPasshash: bool=False):
     if token != TOKEN:
         raise HTTPException(status_code=401, detail='Unauthorized request.')
     if prtgUrl and username and password:
@@ -86,7 +86,7 @@ def reconcile_company(token: str, companyName: str, siteName: str, siteIsProbe: 
 
 @logger.catch
 @app.put('/confirmReconcile')
-def confirm_reconcile(token: str, companyName: str, siteName: str, templateGroup: int, templateDevice: int, unpause: Optional[bool]=False, siteIsProbe: Optional[bool]=False, prtgUrl: Optional[str]=None, username: Optional[str]=None, password: Optional[str]=None, isPasshash: Optional[bool]=False):
+def confirm_reconcile(token: str, companyName: str, siteName: str, templateGroup: int, templateDevice: int, unpause: Optional[bool]=False, siteIsProbe: bool=False, prtgUrl: Optional[str]=None, username: Optional[str]=None, password: Optional[str]=None, isPasshash: bool=False):
     '''**Please run _reconcileCompany_ first to see changes before confirming!**
     '''
     if token != TOKEN:
@@ -106,7 +106,7 @@ def confirm_reconcile(token: str, companyName: str, siteName: str, templateGroup
 
 @logger.catch
 @app.get('/reconcileAll')
-def reconcile_all(token: str, prtgUrl: Optional[str]=None, username: Optional[str]=None, password: Optional[str]=None, isPasshash: Optional[bool]=False):
+def reconcile_all(token: str, prtgUrl: Optional[str]=None, username: Optional[str]=None, password: Optional[str]=None, isPasshash: bool=False):
     if token != TOKEN:
         raise HTTPException(status_code=401, detail='Unauthorized request.')
     if prtgUrl and username and password:
