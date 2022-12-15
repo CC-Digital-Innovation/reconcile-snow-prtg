@@ -64,6 +64,8 @@ def init_prtg_req(companyName: str,
                   httpsVerify: bool=True):
     if prtgUrl and username and password:
         try:
+            # remove trailing '/' in URL
+            prtgUrl = prtgUrl.rstrip('/')
             # custom PRTG instance
             prtg_instance = PrtgApi(prtgUrl, username, password.get_secret_value(), templateGroup, templateDevice, isPasshash, httpsVerify)
         except ValueError as e:
@@ -93,6 +95,8 @@ def reconcile_company(companyName: str,
                       isPasshash: bool=False,
                       httpsVerify: bool=True):
     if prtgUrl and username and password:
+        # remove trailing '/' in URL
+        prtgUrl = prtgUrl.rstrip('/')
         # customer PRTG instance
         prtg_instance = PrtgApi(prtgUrl, username, password.get_secret_value(), is_passhash=isPasshash, requests_verify=httpsVerify)
     else:
@@ -130,6 +134,8 @@ def confirm_reconcile(companyName: str,
     '''**Please run _reconcileCompany_ first to see changes before confirming!**
     '''
     if prtgUrl and username and password:
+        # remove trailing '/' in URL
+        prtgUrl = prtgUrl.rstrip('/')
         # custom PRTG instance
         prtg_instance = PrtgApi(prtgUrl, username, password.get_secret_value(), templateGroup, templateDevice, isPasshash, httpsVerify)
     else:
