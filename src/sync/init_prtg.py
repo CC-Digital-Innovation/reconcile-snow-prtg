@@ -113,6 +113,7 @@ def init_prtg_from_snow(prtg_instance: PrtgApi, company_name, site_name, probe_i
     except MultipleResults:
         logger.error(f'Found more than one record of company {company_name}')
         return f'Found more than one record of company {company_name}'
+    company['name'] = company['name'].strip()
     try:
         location = snow_api.get_location(site_name)
     except NoResults:
@@ -121,6 +122,7 @@ def init_prtg_from_snow(prtg_instance: PrtgApi, company_name, site_name, probe_i
     except MultipleResults:
         logger.error(f'Found more than one record of site named {site_name}')
         return f'Found more than one record of site named {site_name}'
+    location['name'] = location['name'].strip()
     # check cmdb fields first
     try:
         missing_list = check_snow_fields(company_name, site_name)
