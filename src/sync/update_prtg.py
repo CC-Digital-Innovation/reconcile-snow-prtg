@@ -99,6 +99,7 @@ def update_company(prtg_instance: PrtgApi, company_name, site_name, resume, site
             # stage group does not exist; create stage group first
             new_stage_id = prtg_instance.add_group(f'[{company_name}] {device["u_used_for"]}', dict_tree[f'[{company_name}] Customer Managed Infrastructure']['id'])
             prtg_instance.resume_object(new_stage_id)
+            prtg_instance.set_tags(new_stage_id, [device["u_used_for"].replace(' ', '-')])
             stage = dict_tree[f'[{company_name}] Customer Managed Infrastructure']['stages'][f'[{company_name}] {device["u_used_for"]}'] = {'id': new_stage_id, 'classes': {}}
 
         # devices with missing category/class goes to stage group
@@ -111,6 +112,7 @@ def update_company(prtg_instance: PrtgApi, company_name, site_name, resume, site
                 # class group does not exist; create class group first
                 new_class_id = prtg_instance.add_group(f'[{company_name}] {device["u_category"]}', stage['id'])
                 prtg_instance.resume_object(new_class_id)
+                prtg_instance.set_tags(new_class_id, [device["u_category"].replace(' ', '-')])
                 sys_class = stage['classes'][f'[{company_name}] {device["u_category"]}'] = new_class_id
 
         device_id = prtg_instance.add_device(device['name'], device['ip_address'] if device['ip_address'] else device['u_host_name'], sys_class)
@@ -120,10 +122,6 @@ def update_company(prtg_instance: PrtgApi, company_name, site_name, resume, site
             prtg_instance.resume_object(device_id)
         snow_link = snow_api.ci_url(device['sys_id'])
         prtg_instance.set_service_url(device_id, snow_link)
-        tags = [device['u_used_for'].replace(' ', '-')]
-        if device['u_category']:
-            tags.append(device['u_category'].replace(' ', '-'))
-        prtg_instance.set_tags(device_id, tags)
     
     # Remove empty groups after removing devices. Order is important: if removing a subgroup causes
     # a parent group to become empty, the subgroup has to be checked first.
