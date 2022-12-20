@@ -203,7 +203,7 @@ def init_prtg_from_snow(prtg_instance: PrtgApi, company_name, site_name, probe_i
         snow_link = snow_api.ci_url(ci['sys_id'])
         prtg_instance.set_service_url(device_id, snow_link)
         # add tags to device
-        prtg_instance.set_tags(device_id, [ci['u_used_for'], ci['u_category']])
+        prtg_instance.set_tags(device_id, [ci['u_used_for'], ci['u_category'].replace(' ', '-')])
         # add device for reporting
         created.append({
             "prtg": device_name,
@@ -229,9 +229,11 @@ def init_prtg_from_snow(prtg_instance: PrtgApi, company_name, site_name, probe_i
     for stage, class_list in ordered_ci.items():
         if class_list:
             stage_id = prtg_instance.add_group(f'[{company["name"]}] {stage}', cust_mng_inf_id)
+            prtg_instance.set_tags(stage_id, [stage])
             prtg_instance.resume_object(stage_id)
             for class_name, devices in class_list.items():
                 class_id = prtg_instance.add_group(f'[{company["name"]}] {class_name}', stage_id)
+                prtg_instance.set_tags(class_id, [class_name.replace(' ', '-')])
                 prtg_instance.resume_object(class_id)
                 for ci in sorted(devices, key=lambda x: x['name']):
                     try:
@@ -320,9 +322,6 @@ def init_prtg_from_snow(prtg_instance: PrtgApi, company_name, site_name, probe_i
 
                         #TODO uncomment when ServiceNow fields are added
                         # prtg_instance.edit_priority(device_id, ci['priority'])
-
-                        # add tags to device
-                        prtg_instance.set_tags(device_id, [stage, class_name.replace(' ', '-')])
 
                         # add device for reporting
                         created.append({
