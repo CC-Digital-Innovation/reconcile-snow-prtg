@@ -151,10 +151,6 @@ def compare(prtg_instance: PrtgApi, company_name, site_name, site_probe=False):
         if mismatches:
             builder.add('Hostname/IP Address', device['host'], snow_ci[mismatches[0]])
 
-        # tags
-        if snow_ci['u_used_for'].replace(' ', '-') not in device['tags'] or snow_ci['u_category'].replace(' ', '-') not in device['tags']:
-            builder.add('Tags', device['tags'], ' '.join((snow_ci['u_used_for'].replace(' ', '-'), snow_ci['u_category'].replace(' ', '-'))))
-
         # priority
         # builder.check('Priority', device['priority'], snow_ci['u_priority'])
 
