@@ -40,8 +40,9 @@ def check_snow_fields(company_name, site_name):
     fields.append(SnowField('name', 'Name'))
     fields.append(SnowField('u_category', 'Category', required=False))
     fields.append(SnowField('u_used_for', 'Used For'))
-    fields.append(SnowField('u_host_name', 'Host Name', 
-                            fallback=SnowField('ip_address', 'IP Address')))
+    fields.append(SnowField('ip_address', 'IP Address'))
+    fields.append(SnowField('manufacturer', 'Manufacturer', reference=True))
+    fields.append(SnowField('model_number', 'Model Number'))
     # TODO uncomment when SNOW field is implemented
     # fields.append(SnowField('u_credential_type', 'Credential Type', required=False))
     # fields.append(SnowField('u_username', 'Username', required=False))
@@ -141,7 +142,8 @@ def init_prtg_from_snow(prtg_instance: PrtgApi, company_name, site_name, probe_i
         root_id = probe_id
     else:
         root_name = f'[{company["name"]}] {location["name"]}' #TODO use u_site_name when it is consistent (instead of 'name' field)
-        root_id = prtg_instance.add_group(root_name, probe_id)
+        root_id = prtg_instance.add_group(root_name, probe_id)['objid']
+        time.sleep(5)
         prtg_instance.resume_object(root_id)
     
         # # turn off location inheritance
@@ -165,20 +167,13 @@ def init_prtg_from_snow(prtg_instance: PrtgApi, company_name, site_name, probe_i
     # add internal monitoring devices
     snow_internal_cis = snow_api.get_internal_cis_by_site(company_name, site_name)
     if snow_internal_cis:
-        cc_inf_id = prtg_instance.add_group(f'[{company["name"]}] Computacenter Infrastructure', root_id)
+        cc_inf_id = prtg_instance.add_group(f'[{company["name"]}] CC Infrastructure', root_id)['objid']
         prtg_instance.resume_object(cc_inf_id)
     for ci in snow_internal_cis:
         # parse snow fields
-        try:
-            access = ci['ip_address']
-        except KeyError:
-            logger.warning('Could not find IP address, falling back to hostname.')
-            access = ci['u_host_name']
-        else:
-            if not access:
-                access = ci['u_host_name']
+        access = ci['ip_address']
         if not access:
-            logger.error(f'IP address and host name field cannot be found. Device {ci["name"]} cannot be initialized.')
+            logger.error(f'IP address field cannot be found. Device {ci["name"]} cannot be initialized.')
             continue
         try:
             manuf_ci = snow_api.get_record(ci['manufacturer']['link'])['result']['name']
@@ -188,8 +183,8 @@ def init_prtg_from_snow(prtg_instance: PrtgApi, company_name, site_name, probe_i
         except KeyError as e:
             logger.debug(snow_api.get_record(ci['manufacturer']['link']))
             manuf_ci = ''
-        device_name = ci['name']
-        device_id = prtg_instance.add_device(device_name, access, cc_inf_id)
+        device_name = device_name = '{} {} ({})'.format(manuf_ci, ci['model_number'], access)
+        device_id = prtg_instance.add_device(device_name, access, cc_inf_id)['objid']
         snow_api.update_prtg_id(ci['sys_id'], device_id)
         if resume:
             prtg_instance.resume_object(device_id)
@@ -213,7 +208,7 @@ def init_prtg_from_snow(prtg_instance: PrtgApi, company_name, site_name, probe_i
         })
 
     # add customer managed devices
-    cust_mng_inf_id = prtg_instance.add_group(f'[{company["name"]}] Customer Managed Infrastructure', root_id)
+    cust_mng_inf_id = prtg_instance.add_group(f'[{company["name"]}] Customer Managed Infrastructure', root_id)['objid']
     prtg_instance.resume_object(cust_mng_inf_id)
     
     # create devices based on stage -> type category -> device
@@ -228,25 +223,20 @@ def init_prtg_from_snow(prtg_instance: PrtgApi, company_name, site_name, probe_i
             ordered_ci[ci['u_used_for']][ci['u_category']] = [ci]
     for stage, class_list in ordered_ci.items():
         if class_list:
-            stage_id = prtg_instance.add_group(f'[{company["name"]}] {stage}', cust_mng_inf_id)
+            stage_id = prtg_instance.add_group(f'[{company["name"]}] {stage}', cust_mng_inf_id)['objid']
+            time.sleep(5)
             prtg_instance.set_tags(stage_id, [stage])
             prtg_instance.resume_object(stage_id)
             for class_name, devices in class_list.items():
-                class_id = prtg_instance.add_group(f'[{company["name"]}] {class_name}', stage_id)
+                class_id = prtg_instance.add_group(f'[{company["name"]}] {class_name}', stage_id)['objid']
+                time.sleep(5)
                 prtg_instance.set_tags(class_id, [class_name.replace(' ', '-')])
                 prtg_instance.resume_object(class_id)
                 for ci in sorted(devices, key=lambda x: x['name']):
                     try:
-                        try:
-                            access = ci['ip_address']
-                        except KeyError:
-                            logger.warning('Could not find IP address, falling back to hostname.')
-                            access = ci['u_host_name']
-                        else:
-                            if not access:
-                                access = ci['u_host_name']
+                        access = ci['ip_address']
                         if not access:
-                            logger.error(f'IP address and host name field cannot be found. Device {ci["name"]} cannot be initialized.')
+                            logger.error(f'IP address field cannot be found. Device {ci["name"]} cannot be initialized.')
                             continue
                         try:
                             manuf_ci = snow_api.get_record(ci['manufacturer']['link'])['result']['name']
@@ -256,9 +246,10 @@ def init_prtg_from_snow(prtg_instance: PrtgApi, company_name, site_name, probe_i
                         except KeyError as e:
                             logger.debug(snow_api.get_record(ci['manufacturer']['link']))
                             manuf_ci = ''
-                        device_name = ci['name']
+                        device_name = '{} {} ({})'.format(manuf_ci, ci['model_number'], access)
                         logger.debug(f'Adding device {ci["name"]}')
-                        device_id = prtg_instance.add_device(device_name, access, class_id)
+                        device_id = prtg_instance.add_device(device_name, access, class_id)['objid']
+                        time.sleep(5)
                         snow_api.update_prtg_id(ci['sys_id'], device_id)
                         if resume:
                             prtg_instance.resume_object(device_id)

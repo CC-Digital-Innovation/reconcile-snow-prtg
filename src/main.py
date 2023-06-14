@@ -67,13 +67,19 @@ def init_prtg(company_name: str = Form(..., description="Name of Company"), # El
             # remove trailing '/' in URL
             prtg_url = prtg_url.rstrip('/')
             # custom PRTG instance
-            prtg_instance = PrtgApi(prtg_url, username, password.get_secret_value(), template_group, template_device, is_passhash, https_verify)
+            if is_passhash:
+                prtg_instance = PrtgApi(prtg_url, username=username, passhash=password.get_secret_value(), requests_verify=https_verify)
+            else:
+                prtg_instance = PrtgApi(prtg_url, username=username, password=password.get_secret_value(), requests_verify=https_verify)
         except ValueError as e:
             raise HTTPException(status_code=401, detail=str(e))
     else:
         # default PRTG instance
         logger.info('No parameters for a PRTG instance. Using default instance from config.')
-        prtg_instance = PrtgApi(PRTG_BASE_URL, PRTG_USER, PRTG_PASSHASH, template_group, template_device, PRTG_IS_PASSHASH, https_verify)
+        if PRTG_IS_PASSHASH:
+            prtg_instance = PrtgApi(PRTG_BASE_URL, username=PRTG_USER, passhash=PRTG_PASSHASH, requests_verify=https_verify)
+        else:
+            prtg_instance = PrtgApi(PRTG_BASE_URL, username=PRTG_USER, password=PRTG_PASSHASH, requests_verify=https_verify)
     try:
         response = init_prtg_mod.init_prtg_from_snow(prtg_instance, company_name, site_name, probe_id, unpause, probe_is_site)
     except Exception as e:
