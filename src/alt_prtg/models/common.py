@@ -15,6 +15,3 @@ class Status(Enum):
     PAUSED_UNTIL=12
     DOWN_ACKNOWLEDGED=13
     DOWN_PARTIAL=14
-
-class BaseObject:
-    """"""

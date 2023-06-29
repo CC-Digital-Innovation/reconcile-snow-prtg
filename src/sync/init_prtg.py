@@ -137,13 +137,17 @@ def init_prtg_from_snow(prtg_instance: PrtgApi, company_name, site_name, probe_i
         else:
             logger.warning(f'Missing optional fields from cmdb records from {company_name} at {site_name}. Continuing PRTG initialization...')
     
+    # get probe name for proper logging
+    probe_name = prtg_instance.get_probe(probe_id)['name']
+
     # whether probe is site specific or use groups for sites
     if site_probe:
         root_id = probe_id
     else:
-        root_name = f'[{company["name"]}] {location["name"]}' #TODO use u_site_name when it is consistent (instead of 'name' field)
-        root_id = prtg_instance.add_group(root_name, probe_id)['objid']
+        root_name = f'[{probe_name}] {location["name"]}' #TODO use u_site_name when it is consistent (instead of 'name' field)
+        root = prtg_instance.add_group(root_name, probe_id)
         time.sleep(5)
+        root_id = root['objid']
         prtg_instance.resume_object(root_id)
     
         # # turn off location inheritance
@@ -167,7 +171,9 @@ def init_prtg_from_snow(prtg_instance: PrtgApi, company_name, site_name, probe_i
     # add internal monitoring devices
     snow_internal_cis = snow_api.get_internal_cis_by_site(company_name, site_name)
     if snow_internal_cis:
-        cc_inf_id = prtg_instance.add_group(f'[{company["name"]}] CC Infrastructure', root_id)['objid']
+        cc_inf = prtg_instance.add_group(f'[{probe_name}] CC Infrastructure', root_id)
+        time.sleep(5)
+        cc_inf_id = cc_inf['objid']
         prtg_instance.resume_object(cc_inf_id)
     for ci in snow_internal_cis:
         # parse snow fields
@@ -184,7 +190,9 @@ def init_prtg_from_snow(prtg_instance: PrtgApi, company_name, site_name, probe_i
             logger.debug(snow_api.get_record(ci['manufacturer']['link']))
             manuf_ci = ''
         device_name = device_name = '{} {} ({})'.format(manuf_ci, ci['model_number'], access)
-        device_id = prtg_instance.add_device(device_name, access, cc_inf_id)['objid']
+        device = prtg_instance.add_device(device_name, access, cc_inf_id)
+        time.sleep(5)
+        device_id = device['objid']
         snow_api.update_prtg_id(ci['sys_id'], device_id)
         if resume:
             prtg_instance.resume_object(device_id)
@@ -208,7 +216,9 @@ def init_prtg_from_snow(prtg_instance: PrtgApi, company_name, site_name, probe_i
         })
 
     # add customer managed devices
-    cust_mng_inf_id = prtg_instance.add_group(f'[{company["name"]}] Customer Managed Infrastructure', root_id)['objid']
+    cust_mng_inf = prtg_instance.add_group(f'[{probe_name}] Customer Managed Infrastructure', root_id)
+    time.sleep(5)
+    cust_mng_inf_id = cust_mng_inf['objid']
     prtg_instance.resume_object(cust_mng_inf_id)
     
     # create devices based on stage -> type category -> device
@@ -223,13 +233,15 @@ def init_prtg_from_snow(prtg_instance: PrtgApi, company_name, site_name, probe_i
             ordered_ci[ci['u_used_for']][ci['u_category']] = [ci]
     for stage, class_list in ordered_ci.items():
         if class_list:
-            stage_id = prtg_instance.add_group(f'[{company["name"]}] {stage}', cust_mng_inf_id)['objid']
+            stage_obj = prtg_instance.add_group(f'[{probe_name}] {stage}', cust_mng_inf_id)
             time.sleep(5)
+            stage_id = stage_obj['objid']
             prtg_instance.set_tags(stage_id, [stage])
             prtg_instance.resume_object(stage_id)
             for class_name, devices in class_list.items():
-                class_id = prtg_instance.add_group(f'[{company["name"]}] {class_name}', stage_id)['objid']
+                class_obj = prtg_instance.add_group(f'[{probe_name}] {class_name}', stage_id)
                 time.sleep(5)
+                class_id = class_obj['objid']
                 prtg_instance.set_tags(class_id, [class_name.replace(' ', '-')])
                 prtg_instance.resume_object(class_id)
                 for ci in sorted(devices, key=lambda x: x['name']):
@@ -248,8 +260,9 @@ def init_prtg_from_snow(prtg_instance: PrtgApi, company_name, site_name, probe_i
                             manuf_ci = ''
                         device_name = '{} {} ({})'.format(manuf_ci, ci['model_number'], access)
                         logger.debug(f'Adding device {ci["name"]}')
-                        device_id = prtg_instance.add_device(device_name, access, class_id)['objid']
+                        device_obj = prtg_instance.add_device(device_name, access, class_id)
                         time.sleep(5)
+                        device_id = device_obj['objid']
                         snow_api.update_prtg_id(ci['sys_id'], device_id)
                         if resume:
                             prtg_instance.resume_object(device_id)

@@ -1,22 +1,20 @@
 from dataclasses import dataclass
-from typing import Union
+from typing import List
 
 from prtg import Icon
 
 from .common import Status
-from .group import Group
-from .probe import Probe
 
 @dataclass
 class Device:
     id: int
     name: str
-    status: Status
-    probe: Probe
-    group: Group
     host: str
+    service_url: str
+    parent_id: int
     priority: int
+    tags: List[str]
     location: str
     icon: Icon
+    status: Status
     is_active: bool
-    is_paused: bool

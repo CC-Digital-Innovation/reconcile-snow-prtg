@@ -3,7 +3,7 @@ import secrets
 import sys
 from typing import Optional
 
-from fastapi import Depends, FastAPI, Form, HTTPException, status
+from fastapi import Depends, FastAPI, Form, HTTPException, status, Query
 from fastapi.security import APIKeyHeader
 from loguru import logger
 from pydantic import SecretStr
@@ -53,8 +53,6 @@ app = FastAPI(title="Reconcile Snow & PRTG")
 def init_prtg(company_name: str = Form(..., description="Name of Company"), # Ellipsis means it is required
                   site_name: str = Form(..., description="Name of Site (Location)"), 
                   probe_id: int = Form(..., description="ID of Root Group (not to be confused with Probe Device)"), 
-                  template_group: int = Form(..., description="ID of Template Group"), 
-                  template_device: int = Form(..., description="ID of Template Device"), 
                   unpause: bool = Form(False, description="Unpauses devices after creation if true"), 
                   probe_is_site: bool = Form(False, description="Does not create site group if true"), 
                   prtg_url: str = Form('', description="URL of PRTG instance (defaults to dev instance)"), 
@@ -92,23 +90,29 @@ def init_prtg(company_name: str = Form(..., description="Name of Company"), # El
 
 @logger.catch
 @app.get('/reconcile-company', dependencies=[Depends(authorize)])
-def reconcile_company(company_name: str = Form(..., description="Name of Company"), 
-                      site_name: str = Form(..., description="Name of Site (Location)"), 
-                      probe_is_site: bool = Form(False, description="Does not create site group if true"), 
-                      prtg_url: str = Form('', description="URL of PRTG instance (defaults to dev instance)"), 
-                      username: str = Form('', description="Username for PRTG instance above"), 
-                      password: SecretStr = Form('', description="Password for PRTG instance above"), 
-                      is_passhash: bool = Form(False, description="Password above is passhash if true"),
-                      https_verify: bool = Form(True, description="Will verify SSL certificate for PRTG instance if true")):
+def reconcile_company(company_name: str = Query(..., description="Name of Company"), 
+                      site_name: str = Query(..., description="Name of Site (Location)"), 
+                      probe_is_site: bool = Query(False, description="Does not create site group if true"), 
+                      prtg_url: str = Query('', description="URL of PRTG instance (defaults to dev instance)"), 
+                      username: str = Query('', description="Username for PRTG instance above"), 
+                      password: SecretStr = Query('', description="Password for PRTG instance above"), 
+                      is_passhash: bool = Query(False, description="Password above is passhash if true"),
+                      https_verify: bool = Query(True, description="Will verify SSL certificate for PRTG instance if true")):
     if prtg_url and username and password:
         # remove trailing '/' in URL
         prtg_url = prtg_url.rstrip('/')
         # customer PRTG instance
-        prtg_instance = PrtgApi(prtg_url, username, password.get_secret_value(), is_passhash=is_passhash, requests_verify=https_verify)
+        if is_passhash:
+            prtg_instance = PrtgApi(prtg_url, username=username, passhash=password.get_secret_value(), requests_verify=https_verify)
+        else:
+            prtg_instance = PrtgApi(prtg_url, username=username, password=password.get_secret_value(), requests_verify=https_verify)
     else:
         # default PRTG instance
         logger.info('No parameters for a PRTG instance. Using default instance from config.')
-        prtg_instance = PrtgApi(PRTG_BASE_URL, PRTG_USER, PRTG_PASSHASH, is_passhash=PRTG_IS_PASSHASH, requests_verify=https_verify)
+        if PRTG_IS_PASSHASH:
+            prtg_instance = PrtgApi(PRTG_BASE_URL, username=PRTG_USER, passhash=PRTG_PASSHASH, requests_verify=https_verify)
+        else:
+            prtg_instance = PrtgApi(PRTG_BASE_URL, username=PRTG_USER, password=PRTG_PASSHASH, requests_verify=https_verify)
     try:
         errors = compare_snow_prtg.compare(prtg_instance, company_name, site_name, probe_is_site)
     except ObjectNotFound as e:
@@ -131,7 +135,7 @@ def confirm_reconcile(company_name: str = Form(..., description="Name of Company
                       template_group: int = Form(..., description="ID of Template Group"), 
                       template_device: int = Form(..., description="ID of Template Device"), 
                       unpause: bool = Form(False, description="Unpauses devices after creation if true"), 
-                      probe_is_site: bool = Form(False, description="Does not create site group if true"), 
+                      probe_is_site: bool = Form(False, description="Does not check for site group if true"), 
                       prtg_url: str = Form('', description="URL of PRTG instance (defaults to dev instance)"), 
                       username: str = Form('', description="Username for PRTG instance above"), 
                       password: SecretStr = Form('', description="Password for PRTG instance above"), 
