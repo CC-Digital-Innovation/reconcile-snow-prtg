@@ -1,17 +1,17 @@
 from enum import Enum
 
-class Status(Enum):
-    UNKNOWN=1
-    SCANNING=2
-    UP=3
-    WARNING=4
-    DOWN=5
-    NO_PROBE=6
-    PAUSED_BY_USER=7
-    PAUSED_BY_DEPENDENCY=8
-    PAUSED_BY_SCHEDULE=9
-    UNUSUAL=10
-    NOT_LICENSED=11
-    PAUSED_UNTIL=12
-    DOWN_ACKNOWLEDGED=13
-    DOWN_PARTIAL=14
+class Status(str, Enum):
+    UNKNOWN='unknown'
+    SCANNING='scanning'
+    UP='up'
+    WARNING='warning'
+    DOWN='down'
+    NO_PROBE='no probe'
+    PAUSED_BY_USER='paused by user'
+    PAUSED_BY_DEPENDENCY='paused by dependency'
+    PAUSED_BY_SCHEDULE='paused by schedule'
+    UNUSUAL='unusual'
+    NOT_LICENSED='not licensed'
+    PAUSED_UNTIL='paused until'
+    DOWN_ACKNOWLEDGED='down acknowledged'
+    DOWN_PARTIAL='down partial'

@@ -1,1 +1,1 @@
-from controller import PrtgController
+from .controller import PrtgController
