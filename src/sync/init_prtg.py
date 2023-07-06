@@ -1,7 +1,7 @@
 import time
 
 from loguru import logger
-from prtg.api import PrtgApi
+from prtg import ApiClient
 from prtg.icon import Icon
 from pysnow.exceptions import MultipleResults, NoResults
 
@@ -97,7 +97,7 @@ def check_snow_fields(company_name, site_name):
             missing_list.append(missing)
     return missing_list
 
-def init_prtg_from_snow(prtg_instance: PrtgApi, company_name, site_name, probe_id, resume=False, site_probe=False):
+def init_prtg_from_snow(prtg_instance: ApiClient, company_name, site_name, probe_id, resume=False, site_probe=False):
     '''Initializes PRTG devices to proper structure from ServiceNow cmdb configuration items.
     Currently sends an email reports for unsuccessful/successful initialization.
 
@@ -189,7 +189,7 @@ def init_prtg_from_snow(prtg_instance: PrtgApi, company_name, site_name, probe_i
         except KeyError as e:
             logger.debug(snow_api.get_record(ci['manufacturer']['link']))
             manuf_ci = ''
-        device_name = device_name = '{} {} ({})'.format(manuf_ci, ci['model_number'], access)
+        device_name = '{} {} ({})'.format(manuf_ci, ci['model_number'], access)
         device = prtg_instance.add_device(device_name, access, cc_inf_id)
         time.sleep(5)
         device_id = device['objid']

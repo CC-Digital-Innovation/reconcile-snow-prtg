@@ -1,8 +1,7 @@
-import time
 import xml.etree.ElementTree as ET
 
 from loguru import logger
-from prtg.api import PrtgApi
+from prtg import ApiClient
 from prtg.exception import ObjectNotFound
 
 import report
@@ -10,7 +9,7 @@ from snow import snow_api
 from sync import init_prtg
 
 
-def update_company(prtg_instance: PrtgApi, company_name, site_name, resume, site_probe=False):
+def update_company(prtg_instance: ApiClient, company_name, site_name, resume, site_probe=False):
     # get snow devices
     snow_cis = snow_api.get_cis_by_site(company_name, site_name)
     # get prtg devices
@@ -21,7 +20,7 @@ def update_company(prtg_instance: PrtgApi, company_name, site_name, resume, site
         except ObjectNotFound:
             logger.warning(f'Could not find probe with name {probe_name}. Finding group instead...')
             try:
-                probe = prtg_instance.get_group_by_name(probe_name)
+                probe = prtg_instance.get_groups_by_name_containing(probe_name)[0]
             except ObjectNotFound:
                 # SNOW configuration items exist but missing probe
                 if snow_cis:
@@ -30,7 +29,7 @@ def update_company(prtg_instance: PrtgApi, company_name, site_name, resume, site
                 return
     else:
         try:
-            probe = prtg_instance.get_group_by_name(probe_name)
+            probe = prtg_instance.get_groups_by_name_containing(probe_name)[0]
         except ObjectNotFound:
             # SNOW configuration items exist but missing probe
             if snow_cis:
@@ -88,8 +87,8 @@ def update_company(prtg_instance: PrtgApi, company_name, site_name, resume, site
         only_in_prtg.pop(snow_ci['u_prtg_id'])
 
     # remove devices not in snow
-    for device_id, _ in only_in_prtg.items():
-        prtg_instance.delete_object(device_id)
+    # for device_id, _ in only_in_prtg.items():
+    #     prtg_instance.delete_object(device_id)
     
     # add devices not in prtg
     for device in only_in_snow:
@@ -97,10 +96,10 @@ def update_company(prtg_instance: PrtgApi, company_name, site_name, resume, site
             stage = dict_tree[f'[{company_name}] Customer Managed Infrastructure']['stages'][f'[{company_name}] {device["u_used_for"]}']
         except KeyError:
             # stage group does not exist; create stage group first
-            new_stage_id = prtg_instance.add_group(f'[{company_name}] {device["u_used_for"]}', dict_tree[f'[{company_name}] Customer Managed Infrastructure']['id'])
-            prtg_instance.resume_object(new_stage_id)
-            prtg_instance.set_tags(new_stage_id, [device["u_used_for"].replace(' ', '-')])
-            stage = dict_tree[f'[{company_name}] Customer Managed Infrastructure']['stages'][f'[{company_name}] {device["u_used_for"]}'] = {'id': new_stage_id, 'classes': {}}
+            new_stage = prtg_instance.add_group(f'[{company_name}] {device["u_used_for"]}', dict_tree[f'[{company_name}] Customer Managed Infrastructure']['id'])
+            prtg_instance.resume_object(new_stage['objid'])
+            prtg_instance.set_tags(new_stage['objid'], [device["u_used_for"].replace(' ', '-')])
+            stage = dict_tree[f'[{company_name}] Customer Managed Infrastructure']['stages'][f'[{company_name}] {device["u_used_for"]}'] = {'id': new_stage['objid'], 'classes': {}}
 
         # devices with missing category/class goes to stage group
         if not device['u_category']:
@@ -110,32 +109,37 @@ def update_company(prtg_instance: PrtgApi, company_name, site_name, resume, site
                 sys_class = stage['classes'][f'[{company_name}] {device["u_category"]}']
             except KeyError:
                 # class group does not exist; create class group first
-                new_class_id = prtg_instance.add_group(f'[{company_name}] {device["u_category"]}', stage['id'])
-                prtg_instance.resume_object(new_class_id)
-                prtg_instance.set_tags(new_class_id, [device["u_category"].replace(' ', '-')])
-                sys_class = stage['classes'][f'[{company_name}] {device["u_category"]}'] = new_class_id
-
-        device_id = prtg_instance.add_device(device['name'], device['ip_address'] if device['ip_address'] else device['u_host_name'], sys_class)
-        snow_api.update_prtg_id(device['sys_id'], device_id)
-        time.sleep(5.0) # avoid "object is currently not valid" HTTPError
+                new_class = prtg_instance.add_group(f'[{company_name}] {device["u_category"]}', stage['id'])
+                prtg_instance.resume_object(new_class['objid'])
+                prtg_instance.set_tags(new_class['objid'], [device["u_category"].replace(' ', '-')])
+                sys_class = stage['classes'][f'[{company_name}] {device["u_category"]}'] = new_class['objid']
+        
+        try:
+            manuf_ci = snow_api.get_record(device['manufacturer']['link'])['result']['name']
+        except TypeError:
+            logger.warning(f'Tried to access record but field manufacturer is string: {device["manufacturer"]}')
+            manuf_ci = device['manufacturer']
+        new_device_name = '{} {} ({})'.format(manuf_ci, device['model_number'], device['ip_address'])
+        new_device = prtg_instance.add_device(new_device_name, device['ip_address'] if device['ip_address'] else device['u_host_name'], sys_class)
+        snow_api.update_prtg_id(device['sys_id'], new_device['objid'])
         if resume:
-            prtg_instance.resume_object(device_id)
+            prtg_instance.resume_object(new_device['objid'])
         snow_link = snow_api.ci_url(device['sys_id'])
-        prtg_instance.set_service_url(device_id, snow_link)
+        prtg_instance.set_service_url(new_device['objid'], snow_link)
     
     # Remove empty groups after removing devices. Order is important: if removing a subgroup causes
     # a parent group to become empty, the subgroup has to be checked first.
 
     # remove classes that are empty
-    tree_post_action = ET.fromstring(prtg_instance.get_sensortree(group_id))
-    group_post_action = tree_post_action.find('sensortree').find('nodes').find('group')
-    for group in group_post_action.findall('./group/group/group'):
-        if group.find('device') is None:
-            prtg_instance.delete_object(group.find('id').text)
+    # tree_post_action = ET.fromstring(prtg_instance.get_sensortree(group_id))
+    # group_post_action = tree_post_action.find('sensortree').find('nodes').find('group')
+    # for group in group_post_action.findall('./group/group/group'):
+    #     if group.find('device') is None:
+    #         prtg_instance.delete_object(group.find('id').text)
 
     # remove stages that are empty
-    tree_post_action = ET.fromstring(prtg_instance.get_sensortree(group_id))
-    group_post_action = tree_post_action.find('sensortree').find('nodes').find('group')
-    for group in group_post_action.findall('./group/group'):
-        if group.find('group') is None:
-            prtg_instance.delete_object(group.find('id').text)
+    # tree_post_action = ET.fromstring(prtg_instance.get_sensortree(group_id))
+    # group_post_action = tree_post_action.find('sensortree').find('nodes').find('group')
+    # for group in group_post_action.findall('./group/group'):
+    #     if group.find('group') is None:
+    #         prtg_instance.delete_object(group.find('id').text)

@@ -4,7 +4,7 @@ import time
 import requests
 from loguru import logger
 from prtg.exception import ObjectNotFound
-from prtg.api import PrtgApi
+from prtg import ApiClient
 
 import report
 from config import config
@@ -40,7 +40,7 @@ class MismatchBuilder():
             'snow': snow
         }
 
-def compare(prtg_instance: PrtgApi, company_name, site_name, site_probe=False):
+def compare(prtg_instance: ApiClient, company_name, site_name, site_probe=False):
     '''Compares SNOW and PRTG devices
     
     Returns
@@ -67,7 +67,7 @@ def compare(prtg_instance: PrtgApi, company_name, site_name, site_probe=False):
         except ObjectNotFound:
             logger.warning(f'Could not find probe with name {probe_name}. Finding group instead...')
             try:
-                probe = prtg_instance.get_group_by_name(probe_name)
+                probe = prtg_instance.get_groups_by_name_containing(probe_name)[0]
             except ObjectNotFound:
                 # SNOW configuration items exist but missing probe
                 if snow_cis:
@@ -76,7 +76,7 @@ def compare(prtg_instance: PrtgApi, company_name, site_name, site_probe=False):
                 return
     else:
         try:
-            probe = prtg_instance.get_group_by_name(probe_name)
+            probe = prtg_instance.get_groups_by_name_containing(probe_name)[0]
         except ObjectNotFound:
             # SNOW configuration items exist but missing probe
             if snow_cis:
