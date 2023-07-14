@@ -1,6 +1,7 @@
 import pysnow
 import requests
 from loguru import logger
+from pysnow.exceptions import MultipleResults, NoResults
 
 from config import config
 
@@ -60,7 +61,10 @@ def get_company(company_name):
         .AND().field('name').equals(company_name)
     )
     response = companies.get(query=query, stream=True)
-    return response.one()
+    try:
+        return response.one()
+    except (NoResults, MultipleResults) as e:
+        raise ValueError(str(e))
 
 def get_location(site_name):
     '''Return a site location
@@ -81,7 +85,10 @@ def get_location(site_name):
         .AND().field('name').equals(site_name)
     )
     response = locations.get(query=query, stream=True)
-    return response.one()
+    try:
+        return response.one()
+    except (NoResults, MultipleResults) as e:
+        raise ValueError(str(e))
 
 def get_company_locations(company_name):
     '''Return a list of all locations of a company'''
