@@ -9,7 +9,6 @@ from .common import Status
 class Group:
     id: Union[int, None]
     name: str
-    parent_id: int
     priority: int
     tags: List[str]
     location: str

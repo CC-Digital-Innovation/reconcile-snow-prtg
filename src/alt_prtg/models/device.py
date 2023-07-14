@@ -13,7 +13,6 @@ class Device:
     name: str
     host: str
     service_url: str
-    parent_id: Union[int, None]
     priority: int
     tags: List[str]
     location: str
