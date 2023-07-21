@@ -14,3 +14,9 @@ class Group:
     location: str
     status: Status
     is_active: bool
+
+    # Allow subclass comparison for adapters
+    def __eq__(self, other):
+        if isinstance(other, self.__class__):
+            return (self.id, self.name, self.priority, self.tags, self.location, self.status, self.is_active) == (other.id, other.name, other.priority, other.tags, other.location, other.status, other.is_active)
+        return NotImplemented

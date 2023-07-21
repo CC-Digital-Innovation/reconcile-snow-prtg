@@ -1,6 +1,6 @@
-from typing import Union
+from typing import Dict, List, Union
 
-from prtg import ApiClient
+from prtg import ApiClient, Icon
 
 from .models import Device, Group, Probe, Status
 
@@ -44,11 +44,18 @@ class PrtgController:
             self.client.set_location(group_id, group.location)
         return Group(group_id, group.name, group.priority, group.tags, group.location, group.status, group.is_active)
 
-    def get_device(self, id):
-        device = self.client.get_device(id)
+    def _get_device(self, device: Dict) -> Device:
         tags = device['tags'].split()
-        service_url = self.client.get_service_url(id)
-        return Device(device['objid'], device['name'], device['host'], service_url, device['priority'], tags, device['location'], device['icon'], Status(device['status'].lower()), device['active'])
+        try:
+            icon = Icon(device['icon'])
+        except ValueError:
+            icon = None
+        service_url = self.client.get_service_url(device['objid'])
+        return Device(device['objid'], device['name'], device['host'], service_url, device['priority'], tags, device['location'], icon, Status(device['status'].lower()), device['active'])
+
+    def get_device(self, id) -> Device:
+        device = self.client.get_device(id)
+        return self._get_device(device)
 
     def add_device(self, device: Device, parent: Group) -> Device:
         if parent.id is None:
@@ -70,3 +77,9 @@ class PrtgController:
         if device.location:
             self.client.set_location(device_id, device.location)
         return Device(device_id, device.name, device.host, device.service_url, device.priority, device.tags, device.location, device.icon, device.status, device.is_active)
+
+    def get_devices_in_group(self, parent: Group) -> List[Device]:
+        if parent.id is None:
+            raise ValueError(f'Group "{parent.name}" is missing required attribute id. This group may not be created yet.')
+        devices = self.client.get_devices_by_group_id(parent.id)
+        return [self._get_device(device) for device in devices]

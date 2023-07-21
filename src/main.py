@@ -11,6 +11,7 @@ from sync import compare_snow_prtg, init_prtg as init_prtg_mod, update_prtg
 from prtg import ApiClient as PrtgClient
 from prtg.auth import BasicAuth, BasicPasshash, BasicToken
 from prtg.exception import ObjectNotFound
+from snow import ApiClient as SnowClient
 
 # read and parse config file
 LOG_LEVEL = config['local']['log_level'].upper()
@@ -19,10 +20,14 @@ SYSLOG_HOST = config['local']['sys_log_host']
 SYSLOG_PORT = config['local'].getint('sys_log_port')
 TOKEN = config['local']['token']
 PRTG_BASE_URL = config['prtg']['base_url']
+# use get() method since some are optional
 PRTG_USER = config['prtg'].get('username')
 PRTG_PASSWORD = config['prtg'].get('password')
 PRTG_PASSHASH = config['prtg'].get('passhash')
 PRTG_TOKEN = config['prtg'].get('token')
+SNOW_INSTANCE = config['snow']['snow_instance']
+SNOW_USERNAME = config['snow']['api_user']
+SNOW_PASSWORD = config['snow']['api_password']
 
 def set_log_level(log_level):
     '''Configure logging level and syslog.'''
@@ -36,13 +41,20 @@ def set_log_level(log_level):
             logger.add(logging.handlers.SysLogHandler(address = (SYSLOG_HOST, SYSLOG_PORT)), level=log_level)
 
 set_log_level(LOG_LEVEL)
+
+# Get PRTG API client
 if PRTG_TOKEN:
     prtg_auth = BasicToken(PRTG_TOKEN)
-elif PRTG_PASSHASH:
+elif PRTG_USER and PRTG_PASSHASH:
     prtg_auth = BasicPasshash(PRTG_USER, PRTG_PASSHASH)
-else:
+elif PRTG_USER and PRTG_PASSWORD:
     prtg_auth = BasicAuth(PRTG_USER, PRTG_PASSWORD)
+else:
+    raise KeyError('Missing credentials for PRTG. Choose one of: (1) Token, (2) Username and password, (3) Username and passhash')
 prtg_instance = PrtgClient(PRTG_BASE_URL, prtg_auth)
+
+# Get SNOW API Client
+snow_client = SnowClient(SNOW_INSTANCE, SNOW_USERNAME, SNOW_PASSWORD)
 
 api_key = APIKeyHeader(name='X-API-Key')
 
