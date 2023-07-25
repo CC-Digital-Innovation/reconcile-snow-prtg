@@ -1,6 +1,8 @@
 from typing import Dict, List, Union
 
+from loguru import logger
 from prtg import ApiClient, Icon
+from prtg.exception import ObjectNotFound
 
 from .models import Device, Group, Node, Probe, Status
 
@@ -8,20 +10,23 @@ class PrtgController:
     def __init__(self, client: ApiClient):
         self.client = client
 
-    def get_probe(self, id: Union[int, str]):
-        probe = self.client.get_probe(id)
+    def _get_probe(self, probe: Dict) -> Probe:
         return Probe(probe['objid'], probe['name'])
+
+    def get_probe(self, id: Union[int, str]) -> Probe:
+        probe = self.client.get_probe(id)
+        return self._get_probe(probe)
 
     def _get_group(self, group: Dict) -> Group:
         """Helper function to create a Group from a dict payload returned by the API"""
         tags = group['tags'].split()
-        return Group(group['objid'], group['name'], group['priority'], tags, group['location'], Status(group['status']), group['active'])
+        return Group(group['objid'], group['name'], group['priority'], tags, group['location'], Status(group['status'].lower()), group['active'])
               
-    def get_group(self, id: Union[int, str]):
+    def get_group(self, id: Union[int, str]) -> Group:
         group = self.client.get_group(id)
         return self._get_group(group)
 
-    def get_group_by_name(self, name: str):
+    def get_group_by_name(self, name: str) -> Group:
         groups = self.client.get_groups_by_name_containing(name)
         if len(groups) > 1:
             raise ValueError(f'More than one group found with name {name}.')
@@ -102,11 +107,12 @@ class PrtgController:
         # will use client methods and take advantage of the 'parentid' attribute.
 
         # Get all devices in root group.
-        devices_dict = self.client.get_devices_by_group_id(group.id)
+        devices = self.client.get_devices_by_group_id(group.id)
+        logger.debug('Number of devices found: ' + str(len(devices)))
 
         # Work backwards, creating groups until the root group is reached
         group_map = {group.id: root}  # map ID with created nodes to avoid duplicates
-        for device_dict in devices_dict:
+        for device_dict in devices:
             device = self._get_device(device_dict)
             curr_node = Node(device)
             parent_id = device_dict['parentid']
@@ -116,10 +122,19 @@ class PrtgController:
                 except KeyError:
                     # Node does not exist. Create new node, update new node as parent of
                     # current node, and make the node the new current node.
-                    sub_group_dict = self.client.get_group(parent_id)   # Get group details
-                    sub_group = self._get_group(sub_group_dict)
+                    try:
+                        sub_group_dict = self.client.get_group(parent_id)   # Get group details
+                    except ObjectNotFound:
+                        # Probe group
+                        sub_group_dict = self.client.get_probe(parent_id)
+                        sub_group = self._get_probe(sub_group_dict)
+                    else:
+                        sub_group = self._get_group(sub_group_dict)
                     new_node = Node(sub_group)
+                    logger.info(f'Created new node {new_node.prtg_obj.name}')
                     curr_node.parent = new_node         # Update node's parent
+                    logger.debug('Current node details after updating parent' + str(curr_node))
+                    logger.debug('Parent node details after updating current' + str(new_node))
                     group_map[parent_id] = new_node     # Add new node to map
                     
                     # Update current details
