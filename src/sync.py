@@ -27,17 +27,17 @@ def sync_trees(expected: Node, current: Node, expected_controller: SnowControlle
 
     # Add missing devices
     # device is missing if ID is missing
-    to_add = []
+    device_to_add = []
     # map {device_id: node} for quicker access
     current_devices = {node.prtg_obj.id: node for node in current.leaves}
     for node in expected.leaves:
         # add if missing PRTG ID field
         # or if ID exists but not device is found
         if node.prtg_obj.id is None or node.prtg_obj.id not in current_devices:
-            to_add.append(node)
+            device_to_add.append(node)
 
-    logger.debug(f'Number of devices to add: {len(to_add)}')
-    for device_node in to_add:
+    logger.debug(f'Number of devices to add: {len(device_to_add)}')
+    for device_node in device_to_add:
         logger.info(f'Adding device {device_node.prtg_obj.name}...')
         try:
             new_device = current_controller.add_device(device_node.prtg_obj, device_node.parent.prtg_obj)
@@ -65,3 +65,4 @@ def sync_trees(expected: Node, current: Node, expected_controller: SnowControlle
         # Update prtg ID record in SNOW
         device_node.prtg_obj.ci.prtg_id = new_device.id
         expected_controller.update_config_item(device_node.prtg_obj.ci)
+    return [node.prtg_obj for node in device_to_add]

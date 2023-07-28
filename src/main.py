@@ -1,6 +1,8 @@
+import configparser
 import logging.handlers
 import secrets
 import sys
+from pathlib import PurePath
 
 from fastapi import Depends, FastAPI, Form, HTTPException, status
 from fastapi.security import APIKeyHeader
@@ -10,10 +12,13 @@ from prtg.auth import BasicAuth, BasicPasshash, BasicToken
 from prtg.exception import ObjectNotFound
 
 from alt_prtg import PrtgController
-from config import config
 from snow import ApiClient as SnowClient
 from snow import SnowController, get_prtg_tree_adapter
 from sync import sync_trees
+
+# load config file
+config = configparser.ConfigParser()
+config.read(PurePath(__file__).with_name('config.ini'))
 
 # read and parse config file
 LOG_LEVEL = config['local'].get('log_level', 'INFO').upper()
@@ -103,12 +108,13 @@ def sync(company_name: str = Form(..., description="Name of Company"), # Ellipsi
         current_tree = prtg_controller.get_tree(group)
 
         # Sync trees
-        sync_trees(expected_tree, current_tree, snow_controller, prtg_controller)
+        devices_created = sync_trees(expected_tree, current_tree, snow_controller, prtg_controller)
     except HTTPException as e:
         # Reraise already handled exception
         logger.error(e)
         raise e
     except Exception as e:
+        # Catch all other unhandled exceptions
         logger.exception('Unhandled error: ' + str(e))
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, 'An unexpected error occurred.')
-    return f'Successfully synced {company_name} at {site_name}.'
+    return f'Successfully added {len(devices_created)} devices to {company_name} at {site_name}.'
