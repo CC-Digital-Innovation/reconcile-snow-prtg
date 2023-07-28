@@ -20,3 +20,4 @@ class ConfigItem:
     category: str
     link: str
     prtg_id: Union[int, None]
+    is_internal: bool

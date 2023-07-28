@@ -101,47 +101,45 @@ class PrtgController:
             raise ValueError(f'Group "{group.name}" is missing required attribute id. This group may not be created yet.')
         # Initialize argument group as root node
         root = Node(group)
+        # map {id: Node} to avoid creating duplicate nodes
+        group_map = {group.id: root}
         
         # Note that this does not call internal methods because the internal
         # device model does not store parent ID. Like the other methods, it
-        # will use client methods and take advantage of the 'parentid' attribute.
+        # will use client methods but will take advantage of the 'parentid' 
+        # attribute.
 
         # Get all devices in root group.
         devices = self.client.get_devices_by_group_id(group.id)
-        logger.debug('Number of devices found: ' + str(len(devices)))
 
-        # Work backwards, creating groups until the root group is reached
-        group_map = {group.id: root}  # map ID with created nodes to avoid duplicates
+        # Build tree backward from leaf nodes, i.e. devices
         for device_dict in devices:
             device = self._get_device(device_dict)
-            curr_node = Node(device)
-            parent_id = device_dict['parentid']
+            nodes_to_create = [device]  # ordered list of nodes to create later
+            curr_parent_id = device_dict['parentid']
+            # Loop through parent groups using 'parentid' until existing Node is reached,
+            # whether that's the root node or a previously created one
             while True:
                 try:
-                    existing_node = group_map[parent_id]
+                    existing_node = group_map[curr_parent_id]
                 except KeyError:
-                    # Node does not exist. Create new node, update new node as parent of
-                    # current node, and make the node the new current node.
+                    # Node does not exist. Add new group to list of nodes to create
+                    # and update current parent ID.
                     try:
-                        sub_group_dict = self.client.get_group(parent_id)   # Get group details
+                        sub_group_dict = self.client.get_group(curr_parent_id)   # Get group details
                     except ObjectNotFound:
                         # Probe group
-                        sub_group_dict = self.client.get_probe(parent_id)
+                        sub_group_dict = self.client.get_probe(curr_parent_id)
                         sub_group = self._get_probe(sub_group_dict)
                     else:
                         sub_group = self._get_group(sub_group_dict)
-                    new_node = Node(sub_group)
-                    logger.info(f'Created new node {new_node.prtg_obj.name}')
-                    curr_node.parent = new_node         # Update node's parent
-                    logger.debug('Current node details after updating parent' + str(curr_node))
-                    logger.debug('Parent node details after updating current' + str(new_node))
-                    group_map[parent_id] = new_node     # Add new node to map
-                    
-                    # Update current details
-                    curr_node = new_node
-                    parent_id = sub_group_dict['parentid']
+                    nodes_to_create.append(sub_group)
+                    curr_parent_id = sub_group_dict['parentid']
                     continue
-                # Node exists, simply update parent node
-                curr_node.parent = existing_node
                 break
+            # Create tree path downward, starting with existing node as parent
+            for prtg_obj in reversed(nodes_to_create):
+                new_node = Node(prtg_obj, parent=existing_node)
+                group_map[prtg_obj.id] = new_node
+                existing_node = new_node
         return root

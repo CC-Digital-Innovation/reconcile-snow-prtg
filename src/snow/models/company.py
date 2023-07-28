@@ -4,3 +4,4 @@ from dataclasses import dataclass
 class Company:
     id: str
     name: str
+    abbreviated_name: str

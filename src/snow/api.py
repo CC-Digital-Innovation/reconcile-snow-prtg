@@ -138,6 +138,7 @@ class ApiClient:
             .OR().field('install_status').equals('107')     # Duplicate installed
             .AND().field('location.name').equals(site_name)
             .AND().field('u_cc_type').equals('root')
+            .OR().field('u_cc_type').is_empty()
             .AND().field('u_prtg_implementation').equals('true')
         )
         response = cis.get(query=query)
@@ -192,7 +193,7 @@ class ApiClient:
         return f'{protocol}://{self.instance}.service-now.com/cmdb_ci?sys_id={sys_id}'
 
     def update_prtg_id(self, sys_id, value):
-            update = {'u_prtg_id': value}
-            ci_table = self.client.resource(api_path='/table/cmdb_ci')
-            response = ci_table.update(query={'sys_id': sys_id}, payload=update)
-            return response['u_prtg_id'] == value
+        update = {'u_prtg_id': value}
+        ci_table = self.client.resource(api_path='/table/cmdb_ci')
+        response = ci_table.update(query={'sys_id': sys_id}, payload=update)
+        return response['u_prtg_id'] == value
