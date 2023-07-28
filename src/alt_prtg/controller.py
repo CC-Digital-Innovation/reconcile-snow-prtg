@@ -6,6 +6,7 @@ from prtg.exception import ObjectNotFound
 
 from .models import Device, Group, Node, Probe, Status
 
+
 class PrtgController:
     def __init__(self, client: ApiClient):
         self.client = client

@@ -5,6 +5,7 @@ from anytree.node import util
 
 from . import Device, Group, Probe
 
+
 class Node(NodeMixin):
     """Represents an immutable PRTG tree structure of a company/location."""
     def __init__(self, prtg_obj: Union[Device, Group, Probe], parent: Union[NodeMixin, None] = None):

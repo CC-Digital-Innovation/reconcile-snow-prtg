@@ -1,8 +1,7 @@
+from dataclasses import dataclass
+from ipaddress import IPv4Address
 from typing import Union
 
-from ipaddress import IPv4Address
-
-from dataclasses import dataclass
 
 @dataclass
 class Manufacturer:

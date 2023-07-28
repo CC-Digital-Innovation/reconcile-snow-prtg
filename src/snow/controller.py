@@ -1,7 +1,8 @@
 from ipaddress import AddressValueError, IPv4Address
 from typing import Dict, List
 
-from .models import Country, Company, ConfigItem, Location, Manufacturer
+from .models import Company, ConfigItem, Country, Location, Manufacturer
+
 
 class SnowController:
     def __init__(self, client):

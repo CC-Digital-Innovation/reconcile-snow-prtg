@@ -11,7 +11,8 @@ from prtg.exception import ObjectNotFound
 
 from alt_prtg import PrtgController
 from config import config
-from snow import ApiClient as SnowClient, SnowController, get_prtg_tree_adapter
+from snow import ApiClient as SnowClient
+from snow import SnowController, get_prtg_tree_adapter
 from sync import sync_trees
 
 # read and parse config file
@@ -30,18 +31,15 @@ SNOW_INSTANCE = config['snow']['snow_instance']
 SNOW_USERNAME = config['snow']['api_user']
 SNOW_PASSWORD = config['snow']['api_password']
 
-def set_log_level(log_level):
-    '''Configure logging level and syslog.'''
-    if log_level == "QUIET":
-        logger.disable(__name__)
-    else:
-        # remove default logger
-        logger.remove()
-        logger.add(sys.stderr, level=log_level)
-        if SYSLOG_HOST:
-            logger.add(logging.handlers.SysLogHandler(address = (SYSLOG_HOST, SYSLOG_PORT)), level=log_level)
-
-set_log_level(LOG_LEVEL)
+# Configure logger and syslog
+if LOG_LEVEL == "QUIET":
+    logger.disable(__name__)
+else:
+    # remove default logger
+    logger.remove()
+    logger.add(sys.stderr, level=LOG_LEVEL)
+    if SYSLOG_HOST:
+        logger.add(logging.handlers.SysLogHandler(address = (SYSLOG_HOST, SYSLOG_PORT)), level=LOG_LEVEL)
 
 # Get PRTG API client
 if PRTG_TOKEN:
@@ -76,13 +74,20 @@ def sync(company_name: str = Form(..., description="Name of Company"), # Ellipsi
         site_name: str = Form(..., description="Name of Site (Location)"), 
         root_id: int = Form(..., description="ID of root group (not to be confused with Probe Device)"), 
         root_is_site: bool = Form(False, description="Set to true if root group is the site")):
+    logger.info(f'Syncing for {company_name} at {site_name}...')
+    logger.debug(f'Company name: {company_name}, Site name: {site_name}, Root ID: {root_id}, Is Root Site: {root_is_site}')
     try:
         # Get expected tree
         try:
             company = snow_controller.get_company_by_name(company_name)
+        except ValueError as e:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+        logger.info(f'Company "{company_name} found in SNOW."')
+        try:
             location = snow_controller.get_location_by_name(site_name)
         except ValueError as e:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+        logger.info(f'Location "{site_name}" found in SNOW.')
         config_items = snow_controller.get_config_items(company, location)
         try:
             expected_tree = get_prtg_tree_adapter(company, location, config_items, root_is_site, MIN_DEVICES)
@@ -94,6 +99,7 @@ def sync(company_name: str = Form(..., description="Name of Company"), # Ellipsi
             group = prtg_controller.get_group(root_id)
         except ObjectNotFound as e:
             raise HTTPException(status.HTTP_404_BAD_REQUEST, str(e))
+        logger.info(f'Group with ID {root_id} found in PRTG.')
         current_tree = prtg_controller.get_tree(group)
 
         # Sync trees

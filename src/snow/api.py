@@ -2,6 +2,7 @@ import pysnow
 import requests
 from pysnow.exceptions import MultipleResults, NoResults
 
+
 class ApiClient:
     def __init__(self, instance, username, password, ssl=True):
         self.instance = instance

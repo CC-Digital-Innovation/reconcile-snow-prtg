@@ -5,6 +5,7 @@ from alt_prtg import PrtgController
 from alt_prtg.models import Node
 from snow import SnowController
 
+
 def _sync_groups(expected: Node, current: Node):
     # Update expected tree groups with ID if they exist since
     # SNOW does not store a PRTG group object
