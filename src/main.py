@@ -1,8 +1,9 @@
-import configparser
 import logging.handlers
 import secrets
 import sys
+from configparser import ConfigParser
 from pathlib import PurePath
+from typing import Union
 
 from fastapi import Depends, FastAPI, Form, HTTPException, status
 from fastapi.security import APIKeyHeader
@@ -17,24 +18,45 @@ from snow import SnowController, get_prtg_tree_adapter
 from sync import sync_trees
 
 # load config file
-config = configparser.ConfigParser()
+config = ConfigParser()
 config.read(PurePath(__file__).with_name('config.ini'))
 
 # read and parse config file
-LOG_LEVEL = config['local'].get('log_level', 'INFO').upper()
-SYSLOG_HOST = config['local'].get('sys_log_host', '')
-SYSLOG_PORT = config['local'].getint('sys_log_port', 514)
+# __getitem__ (i.e. []) used for required configs,
+# throwing KeyError exception if missing
+# .get() method for optional configs
+
+# Local
+LOG_LEVEL = config.get('local', 'log_level', fallback='INFO').upper()
+SYSLOG_HOST = config.get('local', 'sys_log_host')
+if SYSLOG_HOST:
+    SYSLOG_PORT = config.getint('local', 'sys_log_port', fallback=514)
 TOKEN = config['local']['token']
-MIN_DEVICES = config['local'].getint('min_devices', 0)
-PRTG_BASE_URL = config['prtg']['base_url']
-# use get() method since some are optional
+MIN_DEVICES = config.getint('local', 'min_devices', fallback=20)
+
+# PRTG
+PRTG_BASE_URL = config['prtg']['url']
+# use get() method since only one access method is required
 PRTG_USER = config['prtg'].get('username')
 PRTG_PASSWORD = config['prtg'].get('password')
 PRTG_PASSHASH = config['prtg'].get('passhash')
 PRTG_TOKEN = config['prtg'].get('token')
+
+# SNOW
 SNOW_INSTANCE = config['snow']['snow_instance']
 SNOW_USERNAME = config['snow']['api_user']
 SNOW_PASSWORD = config['snow']['api_password']
+
+# Email
+EMAIL_API = config.get('email', 'url')
+if EMAIL_API:
+    EMAIL_KEY_HEADER = config['email']['key_header']
+    EMAIL_TOKEN = config['email']['token']
+    EMAIL_SUBJECT = config['email']['subject']
+EMAIL_CC = config.get('email', 'cc')
+EMAIL_BCC = config.get('email', 'bcc')
+EMAIL_BODY = config.get('email', 'body')
+EMAIL_REPORT_NAME = config.get('email', 'report_name')
 
 # Configure logger and syslog
 if LOG_LEVEL == "QUIET":
@@ -78,7 +100,8 @@ app = FastAPI(title="Reconcile Snow & PRTG")
 def sync(company_name: str = Form(..., description="Name of Company"), # Ellipsis means it is required
         site_name: str = Form(..., description="Name of Site (Location)"), 
         root_id: int = Form(..., description="ID of root group (not to be confused with Probe Device)"), 
-        root_is_site: bool = Form(False, description="Set to true if root group is the site")):
+        root_is_site: bool = Form(False, description="Set to true if root group is the site"),
+        email: Union[str, None] = Form(None, description="Sends result to email address.")):
     logger.info(f'Syncing for {company_name} at {site_name}...')
     logger.debug(f'Company name: {company_name}, Site name: {site_name}, Root ID: {root_id}, Is Root Site: {root_is_site}')
     try:
