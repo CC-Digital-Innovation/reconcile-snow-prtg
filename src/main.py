@@ -1,8 +1,11 @@
+import json
 import logging.handlers
 import secrets
 import sys
 from configparser import ConfigParser
+from dataclasses import asdict
 from pathlib import PurePath
+from tempfile import SpooledTemporaryFile
 from typing import Union
 
 from fastapi import Depends, FastAPI, Form, HTTPException, status
@@ -11,8 +14,12 @@ from loguru import logger
 from prtg import ApiClient as PrtgClient
 from prtg.auth import BasicAuth, BasicPasshash, BasicToken
 from prtg.exception import ObjectNotFound
+from pysnow.exceptions import MultipleResults, NoResults
+from requests.exceptions import HTTPError
 
+from alt_email import EmailApi, EmailHeaderAuth
 from alt_prtg import PrtgController
+from report import get_add_device_model
 from snow import ApiClient as SnowClient
 from snow import SnowController, get_prtg_tree_adapter
 from sync import sync_trees
@@ -50,13 +57,7 @@ SNOW_PASSWORD = config['snow']['api_password']
 # Email
 EMAIL_API = config.get('email', 'url')
 if EMAIL_API:
-    EMAIL_KEY_HEADER = config['email']['key_header']
     EMAIL_TOKEN = config['email']['token']
-    EMAIL_SUBJECT = config['email']['subject']
-EMAIL_CC = config.get('email', 'cc')
-EMAIL_BCC = config.get('email', 'bcc')
-EMAIL_BODY = config.get('email', 'body')
-EMAIL_REPORT_NAME = config.get('email', 'report_name')
 
 # Configure logger and syslog
 if LOG_LEVEL == "QUIET":
@@ -77,12 +78,15 @@ elif PRTG_USER and PRTG_PASSWORD:
     prtg_auth = BasicAuth(PRTG_USER, PRTG_PASSWORD)
 else:
     raise KeyError('Missing credentials for PRTG. Choose one of: (1) Token, (2) Username and password, (3) Username and passhash')
-prtg_instance = PrtgClient(PRTG_BASE_URL, prtg_auth)
-prtg_controller = PrtgController(prtg_instance)
+prtg_client = PrtgClient(PRTG_BASE_URL, prtg_auth)
+prtg_controller = PrtgController(prtg_client)
 
 # Get SNOW API Client
 snow_client = SnowClient(SNOW_INSTANCE, SNOW_USERNAME, SNOW_PASSWORD)
 snow_controller = SnowController(snow_client)
+
+# Create email client if desired
+email_client = EmailApi(EMAIL_API, EmailHeaderAuth(EMAIL_TOKEN)) if EMAIL_API else None
 
 api_key = APIKeyHeader(name='X-API-Key')
 
@@ -108,13 +112,13 @@ def sync(company_name: str = Form(..., description="Name of Company"), # Ellipsi
         # Get expected tree
         try:
             company = snow_controller.get_company_by_name(company_name)
-        except ValueError as e:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+        except (NoResults, MultipleResults) as e:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e) + f' for company {company_name}')
         logger.info(f'Company "{company_name} found in SNOW."')
         try:
             location = snow_controller.get_location_by_name(site_name)
-        except ValueError as e:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+        except (NoResults, MultipleResults) as e:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e) + f' for location {site_name}')
         logger.info(f'Location "{site_name}" found in SNOW.')
         config_items = snow_controller.get_config_items(company, location)
         try:
@@ -131,7 +135,32 @@ def sync(company_name: str = Form(..., description="Name of Company"), # Ellipsi
         current_tree = prtg_controller.get_tree(group)
 
         # Sync trees
-        devices_created = sync_trees(expected_tree, current_tree, snow_controller, prtg_controller)
+        devices_added = sync_trees(expected_tree, current_tree, snow_controller, prtg_controller)
+
+        # Send Report
+        if email and email_client:
+            logger.info('Sending report to email...')
+            subject = f'XSAutomate: Synced {company_name} at {site_name}'
+            report_name = f'Successfully Synced {company_name} at {site_name}'
+            table_title = [f'Devices Added: {len(devices_added)}']
+
+            # Create temporary file for report
+            with SpooledTemporaryFile() as report:
+                modeled_added_devices = [get_add_device_model(device, prtg_client) for device in devices_added]
+                added_devices_table = [asdict(device) for device in modeled_added_devices]
+                # requires encoding because json module only dumps in str,
+                # requests module recommends opening in binary mode,
+                # and temp files can only be opened in one mode
+                report.write(json.dumps(added_devices_table).encode())
+                # reset position before sending
+                report.seek(0)
+                try:
+                    email_client.email(email, subject, report_name=report_name, table_title=table_title, files=[('report.json', report)])
+                except HTTPError as e:
+                    logger.exception('Unhandled error from email API: ' + str(e))
+                    raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, 'Sync has successfully completed but an unexpected error occurred when sending the email.')
+            logger.info('Successfully sent report to email.')
+        logger.info(f'Successfully added {len(devices_added)} devices to {company_name} at {site_name}.')
     except HTTPException as e:
         # Reraise already handled exception
         logger.error(e)
@@ -140,4 +169,4 @@ def sync(company_name: str = Form(..., description="Name of Company"), # Ellipsi
         # Catch all other unhandled exceptions
         logger.exception('Unhandled error: ' + str(e))
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, 'An unexpected error occurred.')
-    return f'Successfully added {len(devices_created)} devices to {company_name} at {site_name}.'
+    return f'Successfully added {len(devices_added)} devices to {company_name} at {site_name}.'

@@ -1,6 +1,5 @@
 import pysnow
 import requests
-from pysnow.exceptions import MultipleResults, NoResults
 
 
 class ApiClient:
@@ -64,10 +63,7 @@ class ApiClient:
             .AND().field('name').equals(company_name)
         )
         response = companies.get(query=query, stream=True)
-        try:
-            return response.one()
-        except (NoResults, MultipleResults) as e:
-            raise ValueError(str(e))
+        return response.one()
 
     def get_location(self, site_name):
         '''Return a site location
@@ -88,10 +84,7 @@ class ApiClient:
             .AND().field('name').equals(site_name)
         )
         response = locations.get(query=query, stream=True)
-        try:
-            return response.one()
-        except (NoResults, MultipleResults) as e:
-            raise ValueError(str(e))
+        return response.one()
 
     def get_company_locations(self, company_name):
         '''Return a list of all locations of a company'''
