@@ -1,41 +1,92 @@
+import json
 import logging.handlers
 import secrets
 import sys
-from typing import Optional
+from configparser import ConfigParser
+from dataclasses import asdict
+from pathlib import PurePath
+from tempfile import SpooledTemporaryFile
+from typing import Union
 
 from fastapi import Depends, FastAPI, Form, HTTPException, status
 from fastapi.security import APIKeyHeader
 from loguru import logger
-from pydantic import SecretStr
-
-from config import config
-from sync import compare_snow_prtg, init_prtg as init_prtg_mod, update_prtg
-from prtg.api import PrtgApi
+from prtg import ApiClient as PrtgClient
+from prtg.auth import BasicAuth, BasicPasshash, BasicToken
 from prtg.exception import ObjectNotFound
+from pysnow.exceptions import MultipleResults, NoResults
+from requests.exceptions import HTTPError
+
+from alt_email import EmailApi, EmailHeaderAuth
+from alt_prtg import PrtgController
+from report import get_add_device_model
+from snow import ApiClient as SnowClient
+from snow import SnowController, get_prtg_tree_adapter
+from sync import sync_trees
+
+# load config file
+config = ConfigParser()
+config.read(PurePath(__file__).with_name('config.ini'))
 
 # read and parse config file
-LOG_LEVEL = config['local']['log_level'].upper()
-SYSLOG = config['local'].getboolean('syslog')
-SYSLOG_HOST = config['local']['sys_log_host']
-SYSLOG_PORT = config['local'].getint('sys_log_port')
+# __getitem__ (i.e. []) used for required configs,
+# throwing KeyError exception if missing
+# .get() method for optional configs
+
+# Local
+LOG_LEVEL = config.get('local', 'log_level', fallback='INFO').upper()
+SYSLOG_HOST = config.get('local', 'sys_log_host')
+if SYSLOG_HOST:
+    SYSLOG_PORT = config.getint('local', 'sys_log_port', fallback=514)
 TOKEN = config['local']['token']
-PRTG_BASE_URL = config['prtg']['base_url']
-PRTG_USER = config['prtg']['username']
-PRTG_PASSHASH = config['prtg']['passhash']
-PRTG_IS_PASSHASH = config['prtg'].getboolean('is_passhash')
+MIN_DEVICES = config.getint('local', 'min_devices', fallback=20)
 
-def set_log_level(log_level):
-    '''Configure logging level and syslog.'''
-    if log_level == "QUIET":
-        logger.disable(__name__)
-    else:
-        # remove default logger
-        logger.remove()
-        logger.add(sys.stderr, level=log_level)
-        if SYSLOG:
-            logger.add(logging.handlers.SysLogHandler(address = (SYSLOG_HOST, SYSLOG_PORT)), level=log_level)
+# PRTG
+PRTG_BASE_URL = config['prtg']['url']
+# use get() method since only one access method is required
+PRTG_USER = config['prtg'].get('username')
+PRTG_PASSWORD = config['prtg'].get('password')
+PRTG_PASSHASH = config['prtg'].get('passhash')
+PRTG_TOKEN = config['prtg'].get('token')
 
-set_log_level(LOG_LEVEL)
+# SNOW
+SNOW_INSTANCE = config['snow']['snow_instance']
+SNOW_USERNAME = config['snow']['api_user']
+SNOW_PASSWORD = config['snow']['api_password']
+
+# Email
+EMAIL_API = config.get('email', 'url')
+if EMAIL_API:
+    EMAIL_TOKEN = config['email']['token']
+
+# Configure logger and syslog
+if LOG_LEVEL == "QUIET":
+    logger.disable(__name__)
+else:
+    # remove default logger
+    logger.remove()
+    logger.add(sys.stderr, level=LOG_LEVEL)
+    if SYSLOG_HOST:
+        logger.add(logging.handlers.SysLogHandler(address = (SYSLOG_HOST, SYSLOG_PORT)), level=LOG_LEVEL)
+
+# Get PRTG API client
+if PRTG_TOKEN:
+    prtg_auth = BasicToken(PRTG_TOKEN)
+elif PRTG_USER and PRTG_PASSHASH:
+    prtg_auth = BasicPasshash(PRTG_USER, PRTG_PASSHASH)
+elif PRTG_USER and PRTG_PASSWORD:
+    prtg_auth = BasicAuth(PRTG_USER, PRTG_PASSWORD)
+else:
+    raise KeyError('Missing credentials for PRTG. Choose one of: (1) Token, (2) Username and password, (3) Username and passhash')
+prtg_client = PrtgClient(PRTG_BASE_URL, prtg_auth)
+prtg_controller = PrtgController(prtg_client)
+
+# Get SNOW API Client
+snow_client = SnowClient(SNOW_INSTANCE, SNOW_USERNAME, SNOW_PASSWORD)
+snow_controller = SnowController(snow_client)
+
+# Create email client if desired
+email_client = EmailApi(EMAIL_API, EmailHeaderAuth(EMAIL_TOKEN)) if EMAIL_API else None
 
 api_key = APIKeyHeader(name='X-API-Key')
 
@@ -49,133 +100,73 @@ logger.info('Starting up XSAutomate API...')
 app = FastAPI(title="Reconcile Snow & PRTG")
 
 @logger.catch
-@app.post('/init-prtg', dependencies=[Depends(authorize)])
-def init_prtg(company_name: str = Form(..., description="Name of Company"), # Ellipsis means it is required
-                  site_name: str = Form(..., description="Name of Site (Location)"), 
-                  probe_id: int = Form(..., description="ID of Root Group (not to be confused with Probe Device)"), 
-                  template_group: int = Form(..., description="ID of Template Group"), 
-                  template_device: int = Form(..., description="ID of Template Device"), 
-                  unpause: bool = Form(False, description="Unpauses devices after creation if true"), 
-                  probe_is_site: bool = Form(False, description="Does not create site group if true"), 
-                  prtg_url: str = Form('', description="URL of PRTG instance (defaults to dev instance)"), 
-                  username: str = Form('', description="Username for PRTG instance above"), 
-                  password: SecretStr = Form('', description="Password for PRTG instance above"), 
-                  is_passhash: bool = Form(False, description="Password above is passhash if true"), 
-                  https_verify: bool = Form(True, description="Will verify SSL certificate for PRTG instance if true")):
-    if prtg_url and username and password:
+@app.post('/sync', dependencies=[Depends(authorize)])
+def sync(company_name: str = Form(..., description="Name of Company"), # Ellipsis means it is required
+        site_name: str = Form(..., description="Name of Site (Location)"), 
+        root_id: int = Form(..., description="ID of root group (not to be confused with Probe Device)"), 
+        root_is_site: bool = Form(False, description="Set to true if root group is the site"),
+        email: Union[str, None] = Form(None, description="Sends result to email address.")):
+    logger.info(f'Syncing for {company_name} at {site_name}...')
+    logger.debug(f'Company name: {company_name}, Site name: {site_name}, Root ID: {root_id}, Is Root Site: {root_is_site}')
+    try:
+        # Get expected tree
         try:
-            # remove trailing '/' in URL
-            prtg_url = prtg_url.rstrip('/')
-            # custom PRTG instance
-            if is_passhash:
-                prtg_instance = PrtgApi(prtg_url, username=username, passhash=password.get_secret_value(), requests_verify=https_verify)
-            else:
-                prtg_instance = PrtgApi(prtg_url, username=username, password=password.get_secret_value(), requests_verify=https_verify)
-        except ValueError as e:
-            raise HTTPException(status_code=401, detail=str(e))
-    else:
-        # default PRTG instance
-        logger.info('No parameters for a PRTG instance. Using default instance from config.')
-        if PRTG_IS_PASSHASH:
-            prtg_instance = PrtgApi(PRTG_BASE_URL, username=PRTG_USER, passhash=PRTG_PASSHASH, requests_verify=https_verify)
-        else:
-            prtg_instance = PrtgApi(PRTG_BASE_URL, username=PRTG_USER, password=PRTG_PASSHASH, requests_verify=https_verify)
-    try:
-        response = init_prtg_mod.init_prtg_from_snow(prtg_instance, company_name, site_name, probe_id, unpause, probe_is_site)
-    except Exception as e:
-        logger.exception(f'Exception: {e}')
-        raise HTTPException(status_code=400, detail='An error has occurred')
-    else:
-        if response:
-            raise HTTPException(status_code=400, detail=response)
-        return 'Successfully initialized PRTG devices from SNOW.'
-
-@logger.catch
-@app.get('/reconcile-company', dependencies=[Depends(authorize)])
-def reconcile_company(company_name: str = Form(..., description="Name of Company"), 
-                      site_name: str = Form(..., description="Name of Site (Location)"), 
-                      probe_is_site: bool = Form(False, description="Does not create site group if true"), 
-                      prtg_url: str = Form('', description="URL of PRTG instance (defaults to dev instance)"), 
-                      username: str = Form('', description="Username for PRTG instance above"), 
-                      password: SecretStr = Form('', description="Password for PRTG instance above"), 
-                      is_passhash: bool = Form(False, description="Password above is passhash if true"),
-                      https_verify: bool = Form(True, description="Will verify SSL certificate for PRTG instance if true")):
-    if prtg_url and username and password:
-        # remove trailing '/' in URL
-        prtg_url = prtg_url.rstrip('/')
-        # customer PRTG instance
-        prtg_instance = PrtgApi(prtg_url, username, password.get_secret_value(), is_passhash=is_passhash, requests_verify=https_verify)
-    else:
-        # default PRTG instance
-        logger.info('No parameters for a PRTG instance. Using default instance from config.')
-        prtg_instance = PrtgApi(PRTG_BASE_URL, PRTG_USER, PRTG_PASSHASH, is_passhash=PRTG_IS_PASSHASH, requests_verify=https_verify)
-    try:
-        errors = compare_snow_prtg.compare(prtg_instance, company_name, site_name, probe_is_site)
-    except ObjectNotFound as e:
-        raise HTTPException(status_code=404, detail=e)
-    except Exception as e:
-        logger.exception(f'Exception: {e}')
-        raise HTTPException(status_code=500, detail='An error has occurred. Failed to check.')
-    else:
-        if errors:
-            return f'Successfully checked company {company_name} at {site_name} with {errors} errors found. Report will be sent out momentarily.'
-        elif errors == 0:
-            return f'Successfully checked company {company_name} at {site_name} with {errors} errors. No report created.'
-        else:
-            raise HTTPException(status_code=400, detail=f'No PRTG managed devices found.')
-
-@logger.catch
-@app.put('/confirm-reconcile', dependencies=[Depends(authorize)])
-def confirm_reconcile(company_name: str = Form(..., description="Name of Company"), 
-                      site_name: str = Form(..., description="Name of Site (Location)"), 
-                      template_group: int = Form(..., description="ID of Template Group"), 
-                      template_device: int = Form(..., description="ID of Template Device"), 
-                      unpause: bool = Form(False, description="Unpauses devices after creation if true"), 
-                      probe_is_site: bool = Form(False, description="Does not create site group if true"), 
-                      prtg_url: str = Form('', description="URL of PRTG instance (defaults to dev instance)"), 
-                      username: str = Form('', description="Username for PRTG instance above"), 
-                      password: SecretStr = Form('', description="Password for PRTG instance above"), 
-                      is_passhash: bool = Form(False, description="Password above is passhash if true"),
-                      https_verify: bool = Form(True, description="Will verify SSL certificate for PRTG instance if true")):
-    '''**Please run _reconcileCompany_ first to see changes before confirming!**
-    '''
-    if prtg_url and username and password:
-        # remove trailing '/' in URL
-        prtg_url = prtg_url.rstrip('/')
-        # custom PRTG instance
-        prtg_instance = PrtgApi(prtg_url, username, password.get_secret_value(), template_group, template_device, is_passhash, https_verify)
-    else:
-        # default PRTG instance
-        logger.info('No parameters for a PRTG instance. Using default instance from config.')
-        prtg_instance = PrtgApi(PRTG_BASE_URL, PRTG_USER, PRTG_PASSHASH, template_group, template_device, PRTG_IS_PASSHASH, https_verify)
-    try:
-        errors = update_prtg.update_company(prtg_instance, company_name, site_name, unpause, probe_is_site)
-    except ObjectNotFound as e:
-        raise HTTPException(status_code=404, detail=f'Could not find PRTG probe of {company_name} at {site_name}')
-    except Exception as e:
-        logger.exception(f'Exception: {e}')
-        raise HTTPException(status_code=500, detail='An error has occurred. Failed to check.')
-
-@logger.catch
-@app.get('/reconcileAll', dependencies=[Depends(authorize)], include_in_schema=False)
-def reconcile_all(prtg_url: Optional[str]=None, 
-                  username: Optional[str]=None, 
-                  password: Optional[SecretStr]=None, 
-                  is_passhash: bool=False,
-                  https_verify: bool=True):
-    if prtg_url and username and password:
+            company = snow_controller.get_company_by_name(company_name)
+        except (NoResults, MultipleResults) as e:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e) + f' for company {company_name}')
+        logger.info(f'Company "{company_name} found in SNOW."')
         try:
-            # custom PRTG instance
-            prtg_instance = PrtgApi(prtg_url, username, password.get_secret_value(), is_passhash=is_passhash, requests_verify=https_verify)
+            location = snow_controller.get_location_by_name(site_name)
+        except (NoResults, MultipleResults) as e:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e) + f' for location {site_name}')
+        logger.info(f'Location "{site_name}" found in SNOW.')
+        config_items = snow_controller.get_config_items(company, location)
+        try:
+            expected_tree = get_prtg_tree_adapter(company, location, config_items, root_is_site, MIN_DEVICES)
         except ValueError as e:
-            raise HTTPException(status_code=401, detail=str(e))
-    else:
-        # default PRTG instance
-        logger.info('No parameters for a PRTG instance. Using default instance from config.')
-        prtg_instance = PrtgApi(PRTG_BASE_URL, PRTG_USER, PRTG_PASSHASH, is_passhash=PRTG_IS_PASSHASH, requests_verify=https_verify)
-    try:
-        compare_snow_prtg.compare_all(prtg_instance)
-        return 'Successfully checked all company sites. Reports will be sent out momentarily.'
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+
+        # Get current tree
+        try:
+            group = prtg_controller.get_group(root_id)
+        except ObjectNotFound as e:
+            raise HTTPException(status.HTTP_404_BAD_REQUEST, str(e))
+        logger.info(f'Group with ID {root_id} found in PRTG.')
+        current_tree = prtg_controller.get_tree(group)
+
+        # Sync trees
+        devices_added = sync_trees(expected_tree, current_tree, snow_controller, prtg_controller)
+
+        # Send Report
+        if email and email_client:
+            logger.info('Sending report to email...')
+            subject = f'XSAutomate: Synced {company_name} at {site_name}'
+            report_name = f'Successfully Synced {company_name} at {site_name}'
+            table_title = [f'Devices Added: {len(devices_added)}']
+
+            # Create temporary file for report
+            with SpooledTemporaryFile() as report:
+                modeled_added_devices = [get_add_device_model(device, prtg_client) for device in devices_added]
+                added_devices_table = [asdict(device) for device in modeled_added_devices]
+                # requires encoding because json module only dumps in str,
+                # requests module recommends opening in binary mode,
+                # and temp files can only be opened in one mode
+                report.write(json.dumps(added_devices_table).encode())
+                # reset position before sending
+                report.seek(0)
+                try:
+                    email_client.email(email, subject, report_name=report_name, table_title=table_title, files=[('report.json', report)])
+                except HTTPError as e:
+                    logger.exception('Unhandled error from email API: ' + str(e))
+                    raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, 'Sync has successfully completed but an unexpected error occurred when sending the email.')
+            logger.info('Successfully sent report to email.')
+        logger.info(f'Successfully added {len(devices_added)} devices to {company_name} at {site_name}.')
+    except HTTPException as e:
+        # Reraise already handled exception
+        logger.error(e)
+        raise e
     except Exception as e:
-        logger.exception(f'Exception: {e}')
-        raise HTTPException(status_code=400, detail='An error has occurred. Failed to check all company sites.')
+        # Catch all other unhandled exceptions
+        logger.exception('Unhandled error: ' + str(e))
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, 'An unexpected error occurred.')
+    return f'Successfully added {len(devices_added)} devices to {company_name} at {site_name}.'
