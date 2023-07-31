@@ -1,11 +1,10 @@
 # xsautomate-actions
 
-This provides a few functions to automate some actions between ServiceNow and PRTG.
+This API provides an endpoint to synchronize PRTG devices from a ServiceNow CMDB instance. This service automatically pulls configuration items from a site for a company and ensures a structured PRTG layout of devices remain consistent with it.
 
-Using PYSNOW, PRTG's API, and FastAPI, this program can:
-* Initialize all devices from ServiceNow CMDB into a specific tree structure with pre-populated location, service url, ip address, icons, tags, priorities, and credentials.
-* Reconciles company and site specific devices between ServiceNow and PRTG
-* Reconcile all PRTG managed devices on ServiceNow and PRTG
+This projects goal is to:
+* Initialize all devices from ServiceNow CMDB into a specific structure with pre-populated locations, service urls, IP addresses, icons, tags, priorities, and credentials.
+* Reconcile inconsistencies between ServiceNow configuration items and PRTG devices which may include updating device details, adding missing devices, and removing deprecated devices.
 
 ## Table of Contents
 
@@ -35,22 +34,18 @@ _Names in parentheses represent its ServiceNow internal name. If name is missing
 * Country(u_country) - Name
 * Location(cmn_location) - Name, Company`[R]`, Street, City, State, Country`[R]`
 * Manufacturer - Name
-* Devices(cmdb_ci) - Company`[R]`, Status(install_status), Location`[R]`, Category(u_category), Used For(u_used_for), CC Type(u_cc_type), Priority, Credential Type, Host Name(u_host_name), IP Address, Manufacturer`[R]`, Model Number, PRTG Implementation(u_prtg_implementation), PRTG Instrumentation(u_prtg_instrumentation), Username, Password(u_fs_password)
+* Devices(cmdb_ci) - Company`[R]`, Status(install_status), Location`[R]`, Category(u_category), Used For(u_used_for), CC Type(u_cc_type), Priority, Credential Type, IP Address, Manufacturer`[R]`, Model Number, PRTG Implementation(u_prtg_implementation), PRTG Instrumentation(u_prtg_instrumentation)
     * _`u_category` is a type to categorize the type of the device, e.g. server, network, backup, etc_
     * _`u_cc_type` is a type used to filter any out of scope devices_
     * _`install_status` is a type used to filter installed/active devices_
-    * _`u_fs_password` is a password2 type field that can be decrypted_
     * _`u_prtg_implementation` is a flag used to recognize if a device is monitored on PRTG_
-    * _`u_prtg_instrumentation` is a flag used to separate CC devices from customer managed devices. True = CC Infrastructure_
- 
- In order to add credentials to PRTG devices, an API to decrypt u_fs_password is required.
+    * _`u_prtg_instrumentation` is a flag used to separate internal devices from customer managed devices_
 
 ### PRTG Requirements
 
+* Group created and named as the company
+  * If company's record in SNOW contains an abbreviated name, it will be prioritized.
 * Local probe setup
-* Add a group at local probe root. This is used as a template.
-* Add a device at local probe root (not under group template). This is also used as a template.
-    * Switch off inheritance for all credentials that does not inherit from group.
 
 ### Local Requirements
 
@@ -78,28 +73,23 @@ git clone https://github.com/CC-Digital-Innovation/reconcile-snow-prtg.git
 
 #### Docker
 
-* Before the application can run, the configuration and docker-compose files must be decrypted using [sops](https://github.com/mozilla/sops). The required key file needs to be in the appropriate location.
-    ```bash
-    sops -d encrypted.ini > config.ini
-    sops -d docker-compose.encrypted.yml > docker-compose.yml
-    ```
 * This container uses [Caddy-Docker-Proxy](https://github.com/lucaslorentz/caddy-docker-proxy) as a reverse proxy. Here is the [gist](https://gist.github.com/jonnyle2/e78b2803d1da709b8c5153a1248c4327). Save it in a separate directory and edit the domain name. Then,
     * Create the network:
     ```bash
     docker network create caddy
     ```
-    * Start up the container:
+    * Start up the container (note this should be in a separate directory from the project root):
     ```bash
     docker-compose up -d
     ```
-* Edit the config.ini.example file and rename (remove .example).
-* Edit the docker-compose.yml.example file and rename (remove .example).
-* Start up the container:
+* Create a file named `config.ini` inside the `src/` directory and populate it similarly to `encrypted.ini` (exclude the `[sops]` section).
+* Edit the docker-compose.yml file.
+* Start up the container (note this command should run in the project root):
 ```bash
 docker-compose up -d
 ```
 * FastAPI features documentation and schemas of the api, served at `/docs` or `/redocs`
-* To have a recurring check, [Ofelia](https://github.com/mcuadros/ofelia) is used to schedule the job. Here is the [gist](https://gist.github.com/jonnyle2/d4d2859ea444e33a1c0cb06b44eb36d7). Save it in a separate directory, edit the domain name for the command, and use the same line as before to start up the container.
+* To have a recurring check, [Ofelia](https://github.com/mcuadros/ofelia) can be used to schedule jobs. Here is an example [gist](https://gist.github.com/jonnyle2/d4d2859ea444e33a1c0cb06b44eb36d7). Save it in a separate directory, edit the domain name for the command, and use the same line as before to start up the container.
 <hr/>
 
 #### Kubernetes
@@ -134,6 +124,8 @@ spec:
 ```
 * The `spec.selector` can by anything, but must be the same as the labels defined in the deployment. Here, the `metadata.labels` was chosen by [Kompose](https://kompose.io/).
 
+**Note: The following ingress configurations is related to Traefik versions < 2. For versions > 2, refer to Traefik's documentation.**
+
 `reconcile-snow-prtg-ingress.yaml`
 ```yaml
 apiVersion: networking.k8s.io/v1
@@ -163,7 +155,7 @@ spec:
 ```
 A few things to highlight in the Ingress:
 * The cluster, certificate issuer was already [created](https://cert-manager.io/docs/configuration/acme/#creating-a-basic-acme-issuer) and is named `letsencrypt`. Adding it to the `metadata.annotations` and `spec.tls` will configure it to automatically provide TLS support.
-* Traefik's Ingress Controller provides useful annotations like HTTP->HTTPS redirects and path rewrites, which is stripping the extra path (in this case `/xsautomate`) for the interals to use properly).
+* Traefik's Ingress Controller provides useful annotations like HTTP->HTTPS redirects and path rewrites, which is stripping the extra path (in this case `/xsautomate`) for the interals to use properly.
 
 All manifests can be created using `kubectl apply -f <filename>`.
 
@@ -173,8 +165,9 @@ kubectl apply -f reconcile-snow-prtg-deployment.yaml,reconcile-snow-prtg-service
 ```
 
 ## TODOs
-* Create ServiceNow ticket for each customer when there are issues
-* Functions to respond to tickets
+* Implement a `GET` endpoint to retrieve inconsistencies before committing to a sync
+  * Possibly maintain state so changes in between time retrieved and commit won't be affected
+* Implement update and delete operations. These were purposefully left on hold due to them being more critical actions.
 * Weekly digest to include tickets created, pending, and resolved
 * Service Catalog option for engineers to request any of the features
 
