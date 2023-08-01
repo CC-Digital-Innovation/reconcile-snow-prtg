@@ -9,7 +9,7 @@ from snow import SnowController
 def _sync_groups(expected: Node, current: Node):
     # Update expected tree groups with ID if they exist since
     # SNOW does not store a PRTG group object
-    
+
     # Non-leaf nodes are groups
     expected_groups = LevelOrderIter(expected, filter_=lambda n: not n.is_leaf)
     # map {group_id: node} for quicker access
@@ -22,7 +22,7 @@ def sync_trees(expected: Node, current: Node, expected_controller: SnowControlle
     """Synchronize a given tree: (1) add missing devices, (2) remove deactivated devices (not yet unsupported),
     and (3) update device with mismatched details (not yet unsupported)"""
 
-    # Sync group ids    
+    # Sync group ids
     _sync_groups(expected, current)
 
     # Add missing devices
