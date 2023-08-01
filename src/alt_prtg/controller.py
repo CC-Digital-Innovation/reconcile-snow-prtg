@@ -60,7 +60,7 @@ class PrtgController:
         except ValueError:
             icon = None
         service_url = self.client.get_service_url(device['objid'])
-        return Device(device['objid'], device['name'], device['host'], service_url, device['priority'], tags, device['location'], icon, 
+        return Device(device['objid'], device['name'], device['host'], service_url, device['priority'], tags, device['location'], icon,
                       Status(device['status'].lower()), device['active'])
 
     def get_device(self, device_id) -> Device:
@@ -86,7 +86,7 @@ class PrtgController:
             self.client.set_tags(device_id, device.tags)
         if device.location:
             self.client.set_location(device_id, device.location)
-        return Device(device_id, device.name, device.host, device.service_url, device.priority, device.tags, device.location, device.icon, device.status, 
+        return Device(device_id, device.name, device.host, device.service_url, device.priority, device.tags, device.location, device.icon, device.status,
                       device.is_active)
 
     def get_devices_in_group(self, parent: Group) -> List[Device]:

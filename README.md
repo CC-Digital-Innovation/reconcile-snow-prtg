@@ -44,7 +44,7 @@ _Names in parentheses represent its ServiceNow internal name. If name is missing
 ### PRTG Requirements
 
 *   Group created and named as the company
-  *   If company's record in SNOW contains an abbreviated name, it will be prioritized.
+    *   If company's record in SNOW contains an abbreviated name, it will be prioritized.
 *   Local probe setup
 
 ### Local Requirements
@@ -166,13 +166,13 @@ kubectl apply -f reconcile-snow-prtg-deployment.yaml,reconcile-snow-prtg-service
 
 ## TODOs
 *   Implement a `GET` endpoint to retrieve inconsistencies before committing to a sync
-  *   Possibly maintain state so changes in between time retrieved and commit won't be affected
+    *   Possibly maintain state so changes in between time retrieved and commit won't be affected
 *   Implement update and delete operations. These were purposefully left on hold due to them being more critical actions.
 *   Weekly digest to include tickets created, pending, and resolved
 *   Service Catalog option for engineers to request any of the features
 
 ## Author
-*   Jonny Le <<jonny.le@computacenter.com>>
+*   Jonny Le &lt;[jonny.le@computacenter.com](mailto:jonny.le@computacenter.com?subject=[Github]%20XSAutomate%20Actions)&gt;
 
 ## License
 MIT License
