@@ -18,12 +18,12 @@ class EmailApi:
         self.session = requests.Session()
         self.session.auth = auth
 
-    def email(self, 
-              to: str, 
-              subject: str, 
-              cc: Union[str, None] = None, 
-              bcc: Union[str, None] = None, 
-              body: Union[str, None] = None, 
+    def email(self,
+              to: str,
+              subject: str,
+              cc: Union[str, None] = None,
+              bcc: Union[str, None] = None,
+              body: Union[str, None] = None,
               report_name: Union[str, None] = None,
               table_title: Union[List[str], None] = None,
               files: Union[List[Tuple[str, BinaryIO]], None] = None):

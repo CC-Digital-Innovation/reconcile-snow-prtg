@@ -102,8 +102,8 @@ app = FastAPI(title="Reconcile Snow & PRTG")
 @logger.catch
 @app.post('/sync', dependencies=[Depends(authorize)])
 def sync(company_name: str = Form(..., description="Name of Company"), # Ellipsis means it is required
-        site_name: str = Form(..., description="Name of Site (Location)"), 
-        root_id: int = Form(..., description="ID of root group (not to be confused with Probe Device)"), 
+        site_name: str = Form(..., description="Name of Site (Location)"),
+        root_id: int = Form(..., description="ID of root group (not to be confused with Probe Device)"),
         root_is_site: bool = Form(False, description="Set to true if root group is the site"),
         email: Union[str, None] = Form(None, description="Sends result to email address.")):
     logger.info(f'Syncing for {company_name} at {site_name}...')
@@ -158,7 +158,8 @@ def sync(company_name: str = Form(..., description="Name of Company"), # Ellipsi
                     email_client.email(email, subject, report_name=report_name, table_title=table_title, files=[('report.json', report)])
                 except HTTPError as e:
                     logger.exception('Unhandled error from email API: ' + str(e))
-                    raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, 'Sync has successfully completed but an unexpected error occurred when sending the email.')
+                    raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR,
+                                        'Sync has successfully completed but an unexpected error occurred when sending the email.')
             logger.info('Successfully sent report to email.')
         logger.info(f'Successfully added {len(devices_added)} devices to {company_name} at {site_name}.')
     except HTTPException as e:

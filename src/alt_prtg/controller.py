@@ -1,6 +1,5 @@
 from typing import Dict, List, Union
 
-from loguru import logger
 from prtg import ApiClient, Icon
 from prtg.exception import ObjectNotFound
 
@@ -14,17 +13,17 @@ class PrtgController:
     def _get_probe(self, probe: Dict) -> Probe:
         return Probe(probe['objid'], probe['name'])
 
-    def get_probe(self, id: Union[int, str]) -> Probe:
-        probe = self.client.get_probe(id)
+    def get_probe(self, probe_id: Union[int, str]) -> Probe:
+        probe = self.client.get_probe(probe_id)
         return self._get_probe(probe)
 
     def _get_group(self, group: Dict) -> Group:
         """Helper function to create a Group from a dict payload returned by the API"""
         tags = group['tags'].split()
         return Group(group['objid'], group['name'], group['priority'], tags, group['location'], Status(group['status'].lower()), group['active'])
-              
-    def get_group(self, id: Union[int, str]) -> Group:
-        group = self.client.get_group(id)
+
+    def get_group(self, group_id: Union[int, str]) -> Group:
+        group = self.client.get_group(group_id)
         return self._get_group(group)
 
     def get_group_by_name(self, name: str) -> Group:
@@ -61,10 +60,11 @@ class PrtgController:
         except ValueError:
             icon = None
         service_url = self.client.get_service_url(device['objid'])
-        return Device(device['objid'], device['name'], device['host'], service_url, device['priority'], tags, device['location'], icon, Status(device['status'].lower()), device['active'])
+        return Device(device['objid'], device['name'], device['host'], service_url, device['priority'], tags, device['location'], icon,
+                      Status(device['status'].lower()), device['active'])
 
-    def get_device(self, id) -> Device:
-        device = self.client.get_device(id)
+    def get_device(self, device_id) -> Device:
+        device = self.client.get_device(device_id)
         return self._get_device(device)
 
     def add_device(self, device: Device, parent: Group) -> Device:
@@ -86,7 +86,8 @@ class PrtgController:
             self.client.set_tags(device_id, device.tags)
         if device.location:
             self.client.set_location(device_id, device.location)
-        return Device(device_id, device.name, device.host, device.service_url, device.priority, device.tags, device.location, device.icon, device.status, device.is_active)
+        return Device(device_id, device.name, device.host, device.service_url, device.priority, device.tags, device.location, device.icon, device.status,
+                      device.is_active)
 
     def get_devices_in_group(self, parent: Group) -> List[Device]:
         if parent.id is None:
@@ -104,10 +105,10 @@ class PrtgController:
         root = Node(group)
         # map {id: Node} to avoid creating duplicate nodes
         group_map = {group.id: root}
-        
+
         # Note that this does not call internal methods because the internal
         # device model does not store parent ID. Like the other methods, it
-        # will use client methods but will take advantage of the 'parentid' 
+        # will use client methods but will take advantage of the 'parentid'
         # attribute.
 
         # Get all devices in root group.

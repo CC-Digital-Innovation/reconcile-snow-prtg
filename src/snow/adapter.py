@@ -67,7 +67,7 @@ def get_prtg_tree_adapter(company: Company, location: Location, config_items: Li
         # Root is site so do not create separate groups
         root_group = PrtgGroupAdapter(group_name_fmt.format(location.name))
         root = site = Node(root_group)
-    
+
     # Required number of devices before organizing devices into groups
     if len(config_items) < min_device:
         # Not enough devices. Ignore structure and simply create devices in site group.

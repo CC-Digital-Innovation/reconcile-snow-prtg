@@ -11,7 +11,7 @@ class SnowController:
     def get_company_by_name(self, name: str) -> Company:
         company = self.client.get_company(name)
         return Company(company['sys_id'], company['name'].strip(), company['u_abbreviated_name'])
-    
+
     def get_location_by_name(self, name: str) -> Location:
         location = self.client.get_location(name)
         try:
