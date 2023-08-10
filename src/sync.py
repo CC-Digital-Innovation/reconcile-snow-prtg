@@ -10,8 +10,8 @@ def _sync_groups(expected: Node, current: Node):
     # Update expected tree groups with ID if they exist since
     # SNOW does not store a PRTG group object
 
-    # Non-leaf nodes are groups
-    expected_groups = LevelOrderIter(expected, filter_=lambda n: not n.is_leaf)
+    # Non-leaf nodes are groups. Include root since it is considered leaf node if it is the only group
+    expected_groups = LevelOrderIter(expected, filter_=lambda n: not n.is_leaf or n.is_root)
     # map {group_id: node} for quicker access
     current_groups = {node.prtg_obj.name: node for node in LevelOrderIter(current, filter_=lambda n: not n.is_leaf or n.is_root)}
     for node in expected_groups:
