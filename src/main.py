@@ -96,6 +96,7 @@ def authorize(key: str = Depends(api_key)):
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail='Invalid token')
 
+
 logger.info('Starting up XSAutomate API...')
 app = FastAPI(title="Reconcile Snow & PRTG")
 
