@@ -57,7 +57,7 @@ def get_prtg_tree_adapter(company: Company, location: Location, config_items: Li
 
     if not root_is_site:
         # Initialize root node
-        root_group = PrtgGroupAdapter(company_name)
+        root_group = PrtgGroupAdapter(f'[{company_name}]')
         root = Node(root_group)
 
         # Initialize site node
@@ -75,13 +75,13 @@ def get_prtg_tree_adapter(company: Company, location: Location, config_items: Li
             ci_adapter = PrtgDeviceAdapter(ci)
             Node(ci_adapter, parent=site)
         return root
-    
+
     # Enough devices to organize into groups
-    
+
     # Tuple of attributes used for grouping
     # Order matters: left to right represents going deeper into the tree
     filters = ('is_internal', 'stage', 'category')
-    
+
     # Recursive function that dynamically builds psuedo tree depth with
     # leaf nodes containing a list.
     # E.g. build_tree(2) allows a defaultdict like:
@@ -93,9 +93,9 @@ def get_prtg_tree_adapter(company: Company, location: Location, config_items: Li
     def build_tree(depth: int):
         factory = partial(build_tree, depth - 1) if depth > 1 else list
         return defaultdict(factory)
-    
+
     pseudo_tree = build_tree(len(filters))
-    
+
     # Add ci to psuedo tree as leaf node
     for ci in config_items:
         # Grab group names

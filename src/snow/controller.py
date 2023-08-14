@@ -45,7 +45,7 @@ class SnowController:
             prtg_id = int(ci['u_prtg_id'])
         except ValueError:
             prtg_id = None
-        
+
         cc_device = True if ci['u_prtg_instrumentation'] == 'true' else False
         return ConfigItem(ci['sys_id'], ci['name'], ip_address, manufacturer, ci['model_number'], stage, category, link, prtg_id, cc_device)
 
