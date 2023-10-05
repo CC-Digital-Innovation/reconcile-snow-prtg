@@ -129,9 +129,12 @@ def sync(company_name: str = Form(..., description="Name of Company"), # Ellipsi
 
         # Get current tree
         try:
-            group = prtg_controller.get_group(root_id)
-        except ObjectNotFound as e:
-            raise HTTPException(status.HTTP_404_BAD_REQUEST, str(e))
+            group = prtg_controller.get_probe(root_id)
+        except ObjectNotFound:
+            try:
+                group = prtg_controller.get_group(root_id)
+            except ObjectNotFound as e:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, str(e))
         logger.info(f'Group with ID {root_id} found in PRTG.')
         current_tree = prtg_controller.get_tree(group)
 

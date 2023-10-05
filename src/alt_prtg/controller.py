@@ -3,19 +3,17 @@ from typing import Dict, List, Union
 from prtg import ApiClient, Icon
 from prtg.exception import ObjectNotFound
 
-from .models import Device, Group, Node, Probe, Status
+from .models import Device, Group, Node, Status
 
 
 class PrtgController:
     def __init__(self, client: ApiClient):
         self.client = client
 
-    def _get_probe(self, probe: Dict) -> Probe:
-        return Probe(probe['objid'], probe['name'])
-
-    def get_probe(self, probe_id: Union[int, str]) -> Probe:
+    def get_probe(self, probe_id: Union[int, str]) -> Group:
+        """Probes will be treated the same as groups"""
         probe = self.client.get_probe(probe_id)
-        return self._get_probe(probe)
+        return self._get_group(probe)
 
     def _get_group(self, group: Dict) -> Group:
         """Helper function to create a Group from a dict payload returned by the API"""
@@ -36,7 +34,7 @@ class PrtgController:
             raise ValueError(f'No group found with name {name}.')
         return self._get_group(group)
 
-    def add_group(self, group: Group, parent: Union[Probe, Group]) -> Group:
+    def add_group(self, group: Group, parent: Group) -> Group:
         if parent.id is None:
             raise ValueError(f'Group "{parent.name}" is missing required attribute id. This group may not be created yet.')
         new_group = self.client.add_group(group.name, parent.id)
@@ -132,9 +130,7 @@ class PrtgController:
                     except ObjectNotFound:
                         # Probe group
                         sub_group_dict = self.client.get_probe(curr_parent_id)
-                        sub_group = self._get_probe(sub_group_dict)
-                    else:
-                        sub_group = self._get_group(sub_group_dict)
+                    sub_group = self._get_group(sub_group_dict)
                     nodes_to_create.append(sub_group)
                     curr_parent_id = sub_group_dict['parentid']
                     continue
