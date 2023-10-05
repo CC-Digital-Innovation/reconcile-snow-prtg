@@ -2,7 +2,7 @@ from anytree import LevelOrderIter
 from loguru import logger
 
 from alt_prtg import PrtgController
-from alt_prtg.models import Node
+from alt_prtg.models import Device, Node
 from snow import SnowController
 
 
@@ -10,10 +10,10 @@ def _sync_groups(expected: Node, current: Node):
     # Update expected tree groups with ID if they exist since
     # SNOW does not store a PRTG group object
 
-    # Non-leaf nodes are groups. Include root since it is considered leaf node if it is the only group
-    expected_groups = LevelOrderIter(expected, filter_=lambda n: not n.is_leaf or n.is_root)
+    # Filter out device nodes
+    expected_groups = LevelOrderIter(expected, filter_=lambda n: not isinstance(n.prtg_obj, Device))
     # map {group_id: node} for quicker access
-    current_groups = {node.prtg_obj.name: node for node in LevelOrderIter(current, filter_=lambda n: not n.is_leaf or n.is_root)}
+    current_groups = {node.prtg_obj.name: node for node in LevelOrderIter(current, filter_=lambda n: not isinstance(n.prtg_obj, Device))}
     for node in expected_groups:
         if node.prtg_obj.name in current_groups:
             node.prtg_obj.id = current_groups[node.prtg_obj.name].prtg_obj.id
@@ -29,8 +29,8 @@ def sync_trees(expected: Node, current: Node, expected_controller: SnowControlle
     # device is missing if ID is missing
     device_to_add = []
     # map {device_id: node} for quicker access
-    current_devices = {node.prtg_obj.id: node for node in current.leaves}
-    for node in expected.leaves:
+    current_devices = {node.prtg_obj.id: node for node in LevelOrderIter(current, filter_=lambda n: isinstance(n.prtg_obj, Device))}
+    for node in LevelOrderIter(expected, filter_=lambda n: isinstance(n.prtg_obj, Device)):
         # add if missing PRTG ID field
         # or if ID exists but not device is found
         if node.prtg_obj.id is None or node.prtg_obj.id not in current_devices:
