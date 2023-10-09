@@ -1,13 +1,14 @@
 import json
 import logging.handlers
+import os
 import secrets
 import sys
-from configparser import ConfigParser
 from dataclasses import asdict
 from pathlib import PurePath
 from tempfile import SpooledTemporaryFile
 from typing import Union
 
+import dotenv
 from fastapi import Depends, FastAPI, Form, HTTPException, status
 from fastapi.security import APIKeyHeader
 from loguru import logger
@@ -24,40 +25,38 @@ from snow import ApiClient as SnowClient
 from snow import SnowController, get_prtg_tree_adapter
 from sync import sync_trees
 
-# load config file
-config = ConfigParser()
-config.read(PurePath(__file__).with_name('config.ini'))
 
-# read and parse config file
-# __getitem__ (i.e. []) used for required configs,
-# throwing KeyError exception if missing
-# .get() method for optional configs
+# load secrets from .env
+# loaded secrets will not overwrite existing environment variables
+dotenv.load_dotenv(PurePath(__file__).with_name('.env'))
 
 # Local
-LOG_LEVEL = config.get('local', 'log_level', fallback='INFO').upper()
-SYSLOG_HOST = config.get('local', 'sys_log_host')
+LOG_LEVEL = os.getenv('LOGGING_LEVEL', 'INFO').upper()
+SYSLOG_HOST = os.getenv('SYSLOG_HOST')
 if SYSLOG_HOST:
-    SYSLOG_PORT = config.getint('local', 'sys_log_port', fallback=514)
-TOKEN = config['local']['token']
-MIN_DEVICES = config.getint('local', 'min_devices', fallback=20)
+    SYSLOG_PORT = int(os.getenv('SYSLOG_PORT', 514))
+TOKEN = os.environ['TOKEN']
+MIN_DEVICES = int(os.environ['PRTG_MIN_DEVICES'])
 
 # PRTG
-PRTG_BASE_URL = config['prtg']['url']
+PRTG_BASE_URL = os.environ['PRTG_URL']
+prtg_verify = os.getenv('PRTG_VERIFY', 'true').lower()
+PRTG_VERIFY = False if prtg_verify == 'false' else True
 # use get() method since only one access method is required
-PRTG_USER = config['prtg'].get('username')
-PRTG_PASSWORD = config['prtg'].get('password')
-PRTG_PASSHASH = config['prtg'].get('passhash')
-PRTG_TOKEN = config['prtg'].get('token')
+PRTG_USER = os.getenv('PRTG_USER')
+PRTG_PASSWORD = os.getenv('PRTG_PASSWORD')
+PRTG_PASSHASH = os.getenv('PRTG_PASSHASH')
+PRTG_TOKEN = os.getenv('PRTG_TOKEN')
 
 # SNOW
-SNOW_INSTANCE = config['snow']['snow_instance']
-SNOW_USERNAME = config['snow']['api_user']
-SNOW_PASSWORD = config['snow']['api_password']
+SNOW_INSTANCE = os.environ['SNOW_INSTANCE']
+SNOW_USERNAME = os.environ['SNOW_USER']
+SNOW_PASSWORD = os.environ['SNOW_PASSWORD']
 
 # Email
-EMAIL_API = config.get('email', 'url')
+EMAIL_API = os.getenv('EMAIL_URL')
 if EMAIL_API:
-    EMAIL_TOKEN = config['email']['token']
+    EMAIL_TOKEN = os.environ['EMAIL_TOKEN']
 
 # Configure logger and syslog
 if LOG_LEVEL == "QUIET":
@@ -78,7 +77,7 @@ elif PRTG_USER and PRTG_PASSWORD:
     prtg_auth = BasicAuth(PRTG_USER, PRTG_PASSWORD)
 else:
     raise KeyError('Missing credentials for PRTG. Choose one of: (1) Token, (2) Username and password, (3) Username and passhash')
-prtg_client = PrtgClient(PRTG_BASE_URL, prtg_auth)
+prtg_client = PrtgClient(PRTG_BASE_URL, prtg_auth, requests_verify=PRTG_VERIFY)
 prtg_controller = PrtgController(prtg_client)
 
 # Get SNOW API Client

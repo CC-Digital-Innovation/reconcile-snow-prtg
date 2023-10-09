@@ -4,3 +4,4 @@ venv/
 **/config.ini
 .history/
 .vscode/
+.env

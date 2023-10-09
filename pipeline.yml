@@ -1,0 +1,139 @@
+resources:
+  # resource for reconfiguring pipeline
+  - name: repo-pipeline
+    type: git
+    icon: github
+    source:
+      uri: ((repo))
+      branch: ((branch))
+      username: ((git.username))
+      password: ((git.password))
+      paths:
+        - pipeline.yml
+        - vars.yml
+  # resource for triggering pipeline; read-only
+  - name: repo-read
+    type: git
+    icon: github
+    source:
+      uri: ((repo))
+      branch: ((branch))
+      username: ((git.username))
+      password: ((git.password))
+      # determines what files trigger the pipeline, replace with "ignore_paths" if more files need to trigger
+      paths:
+        - ((project_root))  # replace with source file(s) if no project root directory
+        - Dockerfile
+        - requirements.txt
+  # resource of where to push image
+  - name: registry
+    type: registry-image
+    source:
+      repository: ((harbor.repository))/((image))
+      username: ((harbor.username))
+      password: ((harbor.password))
+  # resource for versioning
+  - name: version
+    type: semver
+    icon: numeric
+    source:
+      driver: git
+      uri: ((ssh_url))
+      branch: ((branch))
+      private_key: ((git.private_key))
+      file: version
+      initial_version: 0.0.1
+  # resource to send to slack
+  - name: notifier
+    type: slack-alert
+    icon: slack
+    source:
+      url: ((slack.webhook))
+
+# add slack resource
+resource_types:
+  - name: slack-alert
+    type: docker-image
+    source:
+      repository: arbourd/concourse-slack-alert-resource
+
+jobs:
+  - name: set-pipeline
+    plan:
+      - get: repo-pipeline
+        trigger: true
+      - put: notifier
+        params:
+          alert_type: started
+      - set_pipeline: ((pipeline))
+        file: repo-pipeline/pipeline.yml
+        var_files:
+          - repo-pipeline/vars.yml
+      - put: notifier
+        params:
+          alert_type: success
+    on_failure:
+      put: notifier
+      params:
+        alert_type: failed
+    on_abort:
+      put: notifier
+      params:
+        alert_type: aborted
+    on_error:
+      put: notifier
+      params:
+        alert_type: errored
+
+  - name: build-and-push-image
+    plan:
+      - get: repo-read
+        trigger: true
+      - put: notifier
+        params:
+          alert_type: started
+      - task: build-task-image
+        privileged: true
+        config:
+          platform: linux
+          image_resource:
+            type: registry-image
+            source:
+              repository: concourse/oci-build-task
+          inputs:
+            - name: repo-read
+          outputs:
+            - name: image
+            - name: repo-read
+          params:
+            CONTEXT: repo-read
+          run:
+            path: build
+      - get: version
+        params:
+          bump: patch
+      - load_var: version_num
+        file: version/version
+      - put: registry
+        params:
+          image: image/image.tar
+          version: ((.:version_num))
+          bump_aliases: true
+      - put: version
+        params:
+          file: version/version
+      - put: notifier
+        params:
+          alert_type: success
+    on_failure:
+      put: notifier
+      params:
+        alert_type: failed
+    on_abort:
+      put: notifier
+      params:
+        alert_type: aborted
+    on_error:
+      put: notifier
+      params:
+        alert_type: errored
