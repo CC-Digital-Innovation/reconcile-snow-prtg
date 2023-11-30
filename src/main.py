@@ -174,3 +174,76 @@ def sync(company_name: str = Form(..., description="Name of Company"), # Ellipsi
         logger.exception('Unhandled error: ' + str(e))
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, 'An unexpected error occurred.')
     return f'Successfully added {len(devices_added)} devices to {company_name} at {site_name}.'
+
+@logger.catch
+@app.post('/syncAllSites', dependencies=[Depends(authorize)])
+def sync_all_sites(company_name: str = Form(..., description="Name of Company"), # Ellipsis means it is required
+        root_id: int = Form(..., description="ID of root group (not to be confused with Probe Device)"),
+        email: Union[str, None] = Form(None, description="Sends result to email address.")):
+    logger.info(f'Syncing all sites for {company_name}...')
+    logger.debug(f'Company name: {company_name}, Root ID: {root_id}')
+    try:
+        try:
+            company = snow_controller.get_company_by_name(company_name)
+        except (NoResults, MultipleResults) as e:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e) + f' for company {company_name}')
+        logger.info(f'Company "{company_name} found in SNOW."')
+        locations = snow_controller.get_company_locations(company.name)
+        logger.info(f'{len(locations)} locations found in SNOW.')
+
+        # Get current tree
+        try:
+            group = prtg_controller.get_probe(root_id)
+        except ObjectNotFound:
+            try:
+                group = prtg_controller.get_group(root_id)
+            except ObjectNotFound as e:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, str(e))
+        logger.info(f'Group with ID {root_id} found in PRTG.')
+        current_tree = prtg_controller.get_tree(group)
+
+        devices_added = []
+        for location in locations:
+            config_items = snow_controller.get_config_items(company, location)
+            try:
+                expected_tree = get_prtg_tree_adapter(company, location, config_items, False, MIN_DEVICES)
+            except ValueError as e:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+
+            # Sync trees
+            devices_added.append(sync_trees(expected_tree, current_tree, snow_controller, prtg_controller))
+
+        # Send Report
+        if email and email_client:
+            logger.info('Sending report to email...')
+            subject = f'XSAutomate: Synced all sites for {company_name}'
+            report_name = f'Successfully Synced all sites for {company_name}'
+            table_title = [f'Devices Added: {len(devices_added)}']
+
+            # Create temporary file for report
+            with SpooledTemporaryFile() as report:
+                modeled_added_devices = [get_add_device_model(device, prtg_client) for device in devices_added]
+                added_devices_table = [asdict(device) for device in modeled_added_devices]
+                # requires encoding because json module only dumps in str,
+                # requests module recommends opening in binary mode,
+                # and temp files can only be opened in one mode
+                report.write(json.dumps(added_devices_table).encode())
+                # reset position before sending
+                report.seek(0)
+                try:
+                    email_client.email(email, subject, report_name=report_name, table_title=table_title, files=[('report.json', report)])
+                except HTTPError as e:
+                    logger.exception('Unhandled error from email API: ' + str(e))
+                    raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR,
+                                        'Sync has successfully completed but an unexpected error occurred when sending the email.')
+            logger.info('Successfully sent report to email.')
+        logger.info(f'Successfully added {len(devices_added)} devices to {company_name}.')
+    except HTTPException as e:
+        # Reraise already handled exception
+        logger.error(e)
+        raise e
+    except Exception as e:
+        # Catch all other unhandled exceptions
+        logger.exception('Unhandled error: ' + str(e))
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, 'An unexpected error occurred.')
+    return f'Successfully added {len(devices_added)} devices to {company_name}.'
