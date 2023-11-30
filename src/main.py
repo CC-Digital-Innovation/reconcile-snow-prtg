@@ -15,6 +15,7 @@ from loguru import logger
 from prtg import ApiClient as PrtgClient
 from prtg.auth import BasicAuth, BasicPasshash, BasicToken
 from prtg.exception import ObjectNotFound
+from pydantic import SecretStr
 from pysnow.exceptions import MultipleResults, NoResults
 from requests.exceptions import HTTPError
 
@@ -59,7 +60,7 @@ if EMAIL_API:
     EMAIL_TOKEN = os.environ['EMAIL_TOKEN']
 
 # Configure logger and syslog
-if LOG_LEVEL == "QUIET":
+if LOG_LEVEL == 'QUIET':
     logger.disable(__name__)
 else:
     # remove default logger
@@ -76,9 +77,7 @@ elif PRTG_USER and PRTG_PASSHASH:
 elif PRTG_USER and PRTG_PASSWORD:
     prtg_auth = BasicAuth(PRTG_USER, PRTG_PASSWORD)
 else:
-    raise KeyError('Missing credentials for PRTG. Choose one of: (1) Token, (2) Username and password, (3) Username and passhash')
-prtg_client = PrtgClient(PRTG_BASE_URL, prtg_auth, requests_verify=PRTG_VERIFY)
-prtg_controller = PrtgController(prtg_client)
+    raise KeyError('Missing credentials for default PRTG instance. Choose one of: (1) token, (2) username and password, (3) username and passhash')
 
 # Get SNOW API Client
 snow_client = SnowClient(SNOW_INSTANCE, SNOW_USERNAME, SNOW_PASSWORD)
@@ -89,23 +88,53 @@ email_client = EmailApi(EMAIL_API, EmailHeaderAuth(EMAIL_TOKEN)) if EMAIL_API el
 
 api_key = APIKeyHeader(name='X-API-Key')
 
+# dependency injection for all endpoints that need authentication
 def authorize(key: str = Depends(api_key)):
     if not secrets.compare_digest(key, TOKEN):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail='Invalid token')
 
+# dependency injection for all endpoints that accept a custom prtg instance
+def custom_prtg_parameters(
+        prtg_url: Union[str, None] = Form(None, description='Set a different PRTG instance. Must include HTTP/S protocol, e.g. https://prtg.instance.com.'),
+        prtg_token: Union[SecretStr, None] = Form(None, description='API token to authenticate with a different PRTG instance (username not necessary).'),
+        prtg_username: Union[SecretStr, None] = Form(None, description='Username to authenticate with a different PRTG instance (password or passhash needed)'),
+        prtg_password: Union[SecretStr, None] = Form(None, description='Password to authenticate with a different PRTG instance (username needed)'),
+        prtg_passhash: Union[SecretStr, None] = Form(None, description='Passhash to authenticate with a different PRTG instance (username needed)'),
+        prtg_verify: bool = Form(True, description='Validate server certificate if set to true (default).')):
+    # Check if custom PRTG instance
+    if prtg_url:
+        # Clean URL
+        prtg_url = prtg_url.strip().rstrip('/')
+        # Get authentication
+        if prtg_token:
+            new_prtg_auth = BasicToken(prtg_token.get_secret_value())
+        elif prtg_username and prtg_passhash:
+            new_prtg_auth = BasicPasshash(prtg_username.get_secret_value(), prtg_passhash.get_secret_value())
+        elif prtg_username and prtg_password:
+            new_prtg_auth = BasicAuth(prtg_username.get_secret_value(), prtg_password.get_secret_value())
+        else:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, 'Different PRTG instance entered but missing credentials. Choose one of: (1) Token, (2) Username \
+                                and password, (3) Username and passhash')
+        logger.info(f'Using custom PRTG instance {prtg_url}.')
+        return PrtgClient(prtg_url, new_prtg_auth, requests_verify=prtg_verify)
+    # use default PRTG instance
+    return PrtgClient(PRTG_BASE_URL, prtg_auth, requests_verify=PRTG_VERIFY)
 
 logger.info('Starting up XSAutomate API...')
-app = FastAPI(title="Reconcile Snow & PRTG")
+desc = f'Defaults to the "{PRTG_BASE_URL.split("://")[1]}" instance. In order to use a different PRTG instance, enter the URL and credential parameters before\
+      executing an endpoint. To authenticate for a different PRTG instance, enter one of: (1) token, (2) username and password, or (3) username and passhash.'
+app = FastAPI(title='Reconcile Snow & PRTG', description=desc)
 
 @logger.catch
 @app.post('/sync', dependencies=[Depends(authorize)])
-def sync(company_name: str = Form(..., description="Name of Company"), # Ellipsis means it is required
-        site_name: str = Form(..., description="Name of Site (Location)"),
-        root_id: int = Form(..., description="ID of root group (not to be confused with Probe Device)"),
-        root_is_site: bool = Form(False, description="Set to true if root group is the site"),
-        email: Union[str, None] = Form(None, description="Sends result to email address.")):
+def sync(company_name: str = Form(..., description='Name of Company'), # Ellipsis means it is required
+        site_name: str = Form(..., description='Name of Site (Location)'),
+        root_id: int = Form(..., description='ID of root group (not to be confused with Probe Device)'),
+        root_is_site: bool = Form(False, description='Set to true if root group is the site'),
+        email: Union[str, None] = Form(None, description='Sends result to email address.'),
+        prtg_client: PrtgClient = Depends(custom_prtg_parameters)):
     logger.info(f'Syncing for {company_name} at {site_name}...')
     logger.debug(f'Company name: {company_name}, Site name: {site_name}, Root ID: {root_id}, Is Root Site: {root_is_site}')
     try:
@@ -126,6 +155,7 @@ def sync(company_name: str = Form(..., description="Name of Company"), # Ellipsi
         except ValueError as e:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
 
+        prtg_controller = PrtgController(prtg_client)
         # Get current tree
         try:
             group = prtg_controller.get_probe(root_id)
@@ -177,9 +207,10 @@ def sync(company_name: str = Form(..., description="Name of Company"), # Ellipsi
 
 @logger.catch
 @app.post('/syncAllSites', dependencies=[Depends(authorize)])
-def sync_all_sites(company_name: str = Form(..., description="Name of Company"), # Ellipsis means it is required
-        root_id: int = Form(..., description="ID of root group (not to be confused with Probe Device)"),
-        email: Union[str, None] = Form(None, description="Sends result to email address.")):
+def sync_all_sites(company_name: str = Form(..., description='Name of Company'), # Ellipsis means it is required
+        root_id: int = Form(..., description='ID of root group (not to be confused with Probe Device)'),
+        email: Union[str, None] = Form(None, description='Sends result to email address.'),
+        prtg_client: PrtgClient = Depends(custom_prtg_parameters)):
     logger.info(f'Syncing all sites for {company_name}...')
     logger.debug(f'Company name: {company_name}, Root ID: {root_id}')
     try:
@@ -191,6 +222,7 @@ def sync_all_sites(company_name: str = Form(..., description="Name of Company"),
         locations = snow_controller.get_company_locations(company.name)
         logger.info(f'{len(locations)} locations found in SNOW.')
 
+        prtg_controller = PrtgController(prtg_client)
         # Get current tree
         try:
             group = prtg_controller.get_probe(root_id)
