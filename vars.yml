@@ -1,6 +1,6 @@
 repo: https://github.com/CC-Digital-Innovation/reconcile-snow-prtg.git
 ssh_url: git@github.com:CC-Digital-Innovation/reconcile-snow-prtg.git
-branch: new-pipeline
+branch: main
 project_root: src
 image: xsautomate
 pipeline: xsautomate
