@@ -12,8 +12,7 @@ class SnowController:
         company = self.client.get_company(name)
         return Company(company['sys_id'], company['name'].strip(), company['u_abbreviated_name'])
 
-    def get_location_by_name(self, name: str) -> Location:
-        location = self.client.get_location(name)
+    def _get_location(self, location: Dict):
         try:
             response = self.client.get_record(location['u_country']['link'])
         except TypeError:
@@ -23,9 +22,17 @@ class SnowController:
         street = location['street'].replace('\r\n', ' ')
         return Location(location['sys_id'], location['name'].strip(), country, street, location['city'], location['state'])
 
+    def get_location_by_name(self, name: str) -> Location:
+        location = self.client.get_location(name)
+        return self._get_location(location)
+
+    def get_company_locations(self, company_name: str) -> List[Location]:
+        locations = self.client.get_company_locations(company_name)
+        return [self._get_location(location) for location in locations]
+
     def _get_config_item(self, ci: Dict):
         try:
-            ip_address = IPv4Address(ci['ip_address'])
+            ip_address = IPv4Address(ci['ip_address'].strip())
         except AddressValueError:
             ip_address = None
 
