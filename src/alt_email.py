@@ -27,7 +27,6 @@ class EmailApi:
               report_name: Union[str, None] = None,
               table_title: Union[List[str], None] = None,
               files: Union[List[Tuple[str, BinaryIO]], None] = None):
-        url = self.url + '/emailReport/'
         data = {
             'subject': subject,
             'to': to,
@@ -44,6 +43,6 @@ class EmailApi:
         else:
             formatted_files = None
 
-        response = self.session.post(url, data, files=formatted_files)
+        response = self.session.post(self.url, data, files=formatted_files)
         response.raise_for_status()
         return response.json()
