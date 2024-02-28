@@ -10,7 +10,7 @@ class Status(str, Enum):
     NO_PROBE='no probe'
     PAUSED = 'paused  (paused)'
     PAUSED_BY_USER='paused by user'
-    PAUSED_BY_DEPENDENCY='paused by dependency'
+    PAUSED_BY_DEPENDENCY='paused'
     PAUSED_BY_SCHEDULE='paused by schedule'
     PAUSED_BY_PARENT='paused  (paused by parent)'
     UNUSUAL='unusual'
