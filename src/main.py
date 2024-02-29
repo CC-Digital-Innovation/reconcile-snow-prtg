@@ -170,6 +170,10 @@ def sync(company_name: str = Form(..., description='Name of Company'), # Ellipsi
         # Sync trees
         devices_added = sync_trees(expected_tree, current_tree, snow_controller, prtg_controller)
 
+        # No changes found, return
+        if not devices_added:
+            return f'No changes were found for {company_name} at {site_name}.'
+
         # Send Report
         if email and email_client:
             logger.info('Sending report to email...')
@@ -243,8 +247,12 @@ def sync_all_sites(company_name: str = Form(..., description='Name of Company'),
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
 
             # Sync trees
-            devices_added.append(sync_trees(expected_tree, current_tree, snow_controller, prtg_controller))
+            devices_added.extend(sync_trees(expected_tree, current_tree, snow_controller, prtg_controller))
 
+        # No changes found, return
+        if not devices_added:
+            return f'No changes were found for any location at {company_name}.'
+        
         # Send Report
         if email and email_client:
             logger.info('Sending report to email...')
