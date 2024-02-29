@@ -17,6 +17,7 @@ class ConfigItem:
     model_number: str
     stage: str
     category: str
+    sys_class: str
     link: str
     prtg_id: Union[int, None]
     is_internal: bool

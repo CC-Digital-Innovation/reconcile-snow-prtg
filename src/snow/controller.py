@@ -45,6 +45,7 @@ class SnowController:
 
         stage = ci['u_used_for'] if ci['u_used_for'] is not None else ''
         category = ci['u_category'] if ci['u_category'] is not None else ''
+        sys_class = ci['sys_class_name'] if ci['sys_class_name'] is not None else ''
 
         link = self.client.ci_url(ci['sys_id'])
 
@@ -54,7 +55,7 @@ class SnowController:
             prtg_id = None
 
         cc_device = True if ci['u_prtg_instrumentation'] == 'true' else False
-        return ConfigItem(ci['sys_id'], ci['name'], ip_address, manufacturer, ci['model_number'], stage, category, link, prtg_id, cc_device)
+        return ConfigItem(ci['sys_id'], ci['name'], ip_address, manufacturer, ci['model_number'], stage, category, sys_class, link, prtg_id, cc_device)
 
     def get_config_items(self, company: Company, location: Location) -> List[ConfigItem]:
         cis = self.client.get_cis_by_site(company.name, location.name)
