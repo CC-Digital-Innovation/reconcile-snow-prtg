@@ -24,7 +24,7 @@ from alt_prtg import PrtgController
 from report import get_add_device_model
 from snow import ApiClient as SnowClient
 from snow import SnowController, get_prtg_tree_adapter
-from sync import sync_trees
+from sync import sync_trees, RootMismatchException
 
 
 # load secrets from .env
@@ -168,7 +168,10 @@ def sync(company_name: str = Form(..., description='Name of Company'), # Ellipsi
         current_tree = prtg_controller.get_tree(group)
 
         # Sync trees
-        devices_added = sync_trees(expected_tree, current_tree, snow_controller, prtg_controller)
+        try:
+            devices_added = sync_trees(expected_tree, current_tree, snow_controller, prtg_controller)
+        except RootMismatchException as e:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
 
         # No changes found, return
         if not devices_added:
@@ -247,7 +250,10 @@ def sync_all_sites(company_name: str = Form(..., description='Name of Company'),
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
 
             # Sync trees
-            devices_added.extend(sync_trees(expected_tree, current_tree, snow_controller, prtg_controller))
+            try:
+                devices_added.extend(sync_trees(expected_tree, current_tree, snow_controller, prtg_controller))
+            except RootMismatchException as e:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
 
         # No changes found, return
         if not devices_added:
