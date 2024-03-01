@@ -6,17 +6,38 @@ from alt_prtg.models import Device, Node
 from snow import SnowController
 
 
+class RootMismatchException(Exception):
+    "Raise when root does not match"
+
 def _sync_groups(expected: Node, current: Node):
     # Update expected tree groups with ID if they exist since
     # SNOW does not store a PRTG group object
 
-    # Filter out device nodes
+    # iterator to get all expected nodes, filtering out device nodes
     expected_groups = LevelOrderIter(expected, filter_=lambda n: not isinstance(n.prtg_obj, Device))
+    # iterator to get all current nodes, filtering out device nodes
+    current_groups = LevelOrderIter(current, filter_=lambda n: not isinstance(n.prtg_obj, Device))
+
+    # expected root group is short and could match multiple groups
+    # grab and compare root first
+    expected_root = next(expected_groups)
+    current_root = next(current_groups)
+
+    # confirm root matches
+    if not current_root.prtg_obj.name.startswith(expected_root.prtg_obj.name):
+        raise RootMismatchException(f'PRTG root \"{current_root.prtg_obj.name}\" does not start with \"{expected_root.prtg_obj.name}\".')
+    # set expected root group id
+    expected_root.prtg_obj.id = current_root.prtg_obj.id
+
     # map {group_id: node} for quicker access
-    current_groups = {node.prtg_obj.name: node for node in LevelOrderIter(current, filter_=lambda n: not isinstance(n.prtg_obj, Device))}
+    current_groups_map = {node.prtg_obj.name: node for node in current_groups}
+    # update non-root group ids
     for node in expected_groups:
-        if node.prtg_obj.name in current_groups:
-            node.prtg_obj.id = current_groups[node.prtg_obj.name].prtg_obj.id
+        # compare groups by name
+        # current group name must as least start with expected group name
+        group_name = next((name for name in current_groups_map.keys() if name.startswith(node.prtg_obj.name)), None)
+        if group_name is not None:
+            node.prtg_obj.id = current_groups_map.pop(group_name).prtg_obj.id
 
 def sync_trees(expected: Node, current: Node, expected_controller: SnowController, current_controller: PrtgController):
     """Synchronize a given tree: (1) add missing devices, (2) remove deactivated devices (not yet unsupported),

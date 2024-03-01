@@ -119,6 +119,18 @@ def get_prtg_tree_adapter(company: Company, location: Location, config_items: Li
             stage_node = Node(PrtgGroupAdapter(group_name_fmt.format(stage)), parent=external_node)
             for category, cis in categories.items():
                 cat_node = Node(PrtgGroupAdapter(group_name_fmt.format(category)), parent=stage_node)
+                # specific case for Access Points
+                if category == 'Network':
+                    ap_node = Node(PrtgGroupAdapter(group_name_fmt.format('APs')), parent=cat_node)
+                    for ci in cis:
+                        if ci.sys_class == 'Wireless Access Point':
+                            Node(PrtgDeviceAdapter(ci), parent=ap_node)
+                        else:
+                            Node(PrtgDeviceAdapter(ci), parent=cat_node)
+                    if not ap_node.children:
+                        # no children means group is not necessary, remove from tree
+                        ap_node.parent = None
+                    continue
                 for ci in cis:
                     Node(PrtgDeviceAdapter(ci), parent=cat_node)
     return root
