@@ -26,6 +26,10 @@ from snow import ApiClient as SnowClient
 from snow import SnowController, get_prtg_tree_adapter
 from sync import sync_trees, RootMismatchException
 
+from datetime import datetime
+from pytz import timezone
+
+#
 
 # load secrets from .env
 # loaded secrets will not overwrite existing environment variables
@@ -86,7 +90,14 @@ snow_controller = SnowController(snow_client)
 # Create email client if desired
 email_client = EmailApi(EMAIL_API, EmailHeaderAuth(EMAIL_TOKEN)) if EMAIL_API else None
 
+# Create a client connection to PRTG
+prtg_client = PrtgClient(PRTG_BASE_URL, prtg_auth, requests_verify=PRTG_VERIFY)
+
 api_key = APIKeyHeader(name='X-API-Key')
+
+# Tags
+tag_device_info = "Device Info"
+tag_device_updates = "Device Updates"
 
 # dependency injection for all endpoints that need authentication
 def authorize(key: str = Depends(api_key)):
@@ -121,6 +132,8 @@ def custom_prtg_parameters(
         return PrtgClient(prtg_url, new_prtg_auth, requests_verify=prtg_verify)
     # use default PRTG instance
     return PrtgClient(PRTG_BASE_URL, prtg_auth, requests_verify=PRTG_VERIFY)
+
+
 
 logger.info('Starting up XSAutomate API...')
 desc = f'Defaults to the "{PRTG_BASE_URL.split("://")[1]}" instance. In order to use a different PRTG instance, enter the URL and credential parameters before\
@@ -293,3 +306,277 @@ def sync_all_sites(company_name: str = Form(..., description='Name of Company'),
         logger.exception('Unhandled error: ' + str(e))
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, 'An unexpected error occurred.')
     return f'Successfully added {len(devices_added)} devices to {company_name}.'
+
+
+
+# Get all devices
+# Test PASSED (2024-03-06 09:51 AM)
+@logger.catch
+@app.get("/get_all_devices", tags= [tag_device_info], dependencies=[Depends(authorize)])
+async def get_all_devices():
+    try:
+        get_devices = prtg_client.get_all_devices()
+        logger.info(f"Successfully retrieved all devices")
+        return get_devices
+    except Exception as e:
+        logger.exception('Could not retrieve all devices: ' + str(e))
+        return {"error": str(e)}
+        
+
+# Get all groups
+# Test PASSED (2024-03-06 09:51 AM)
+@logger.catch
+@app.get("/get_all_groups", tags= [tag_device_info], dependencies=[Depends(authorize)])
+async def get_group_info():
+    try:
+        get_groups = prtg_client.get_all_groups()
+        logger.info(f"Successfully retrieved all groups")
+        return get_groups
+    except Exception as e:
+        logger.exception('Could not retrieve all groups: ' + str(e))
+        return {"error": str(e)}
+
+
+# Get all devices in a group
+
+
+# Test PASSED ("2024-03-06 09:50:10 AM")
+@logger.catch
+@app.post("/move_device_groups", tags= [tag_device_updates], dependencies=[Depends(authorize)] )
+async def move_device_groups(objid : int, 
+                             new_group_objid : int):
+    
+    try:
+        device = prtg_client.get_device(objid)
+        group = prtg_client.get_group(new_group_objid)
+        
+        # Get the current time in PST and format it well with the time abbreviation at and import necessary modules
+        timestamp = datetime.now(timezone('US/Pacific')).strftime("%Y-%m-%d %I:%M:%S %p")
+
+        # Check to see if the objid is already in that group
+        if device['group'] != group['name']:
+            prtg_client.move_object(objid, new_group_objid)
+            # Get the name of the objid and the new_group_objid
+            return_message = {
+                "message": f"Device moved successfully",
+                "timestamp" : timestamp,
+                "device_name" : device['name'],
+                "old_group_name" : device['group'],
+                "new_group_name" : group['name'],
+                "objid" : objid,
+                "new_group_objid" : new_group_objid,
+                }
+            logger.info(return_message)
+            return return_message
+        else:
+            logger.error("Device was not moved successfully: Device is already in that group")
+            return {"error": "Device is already in that group"}
+
+    except Exception as e:
+        logger.exception('Device was not moved successfully: ' + str(e))
+        return {"error": f"Device was not moved successfully: {e}"}
+
+# Test PASSED (2024-03-06 10:31:50 AM)
+@logger.catch
+@app.post("/move_group_to_group", tags= [tag_device_updates], dependencies=[Depends(authorize)])
+async def move_group_to_group(groupid : int, 
+                              new_group_objid : int):
+    try:
+        timestamp = datetime.now(timezone('US/Pacific')).strftime("%Y-%m-%d %I:%M:%S %p")
+
+        group = prtg_client.get_group(groupid)
+        new_group = prtg_client.get_group(new_group_objid)
+
+        # Get the parentid of the groupid, and check if that
+        # parentid's group has the same name as the new_group_objid's name
+        group_parent_name = prtg_client.get_group(group["parentid"])["name"]
+
+        if group_parent_name != new_group["name"]:
+            # Check to see if the group is already in that group
+            prtg_client.move_object(groupid, new_group_objid)
+            return_message = {
+                    "message": f"Group moved successfully",
+                    "groupid" : groupid,
+                    "old_group_name" : group["name"],
+                    "new_group_name" : new_group["name"],
+                    "timestamp" : timestamp,
+                }
+            logger.info(return_message)
+            return return_message
+        else:
+            logger.error("Group was not moved successfully: Group is already in that group")
+            return {"error": "Group is already in that group"}
+    except Exception as e:
+        logger.exception('Group was not moved successfully: ' + str(e))
+        return {"error": f"Group was not moved successfully: {e}"}
+
+# Rename a device
+# Test PASSED (2024-03-06 10:05:24 AM)
+@logger.catch
+@app.post("/rename_group", tags= [tag_device_updates], dependencies=[Depends(authorize)])
+async def rename_group(objid: int, 
+                       value : str):
+    try:
+        # Set the device property
+        timestamp = datetime.now(timezone('US/Pacific')).strftime("%Y-%m-%d %I:%M:%S %p")
+        group = prtg_client.get_group(objid)
+
+        # Check to see if the group is already named that
+        # If it isn't, then rename it
+        if group['name'] != value:
+            prtg_client._set_obj_property_base(objid, 'name', value)
+            return_message = {
+                "message": f"Group renamed successfully",
+                "timestamp" : timestamp,
+                "old_group_name" : group['name'],
+                "new_group_name" : value,
+                "objid" : objid,
+            }
+            logger.info(return_message)
+            return return_message
+        else:
+            logger.error("Group was not renamed successfully: Group is already named that")
+            return {"error": "Group is already named that"}
+    except Exception as e:
+        return {"error": f"Group was not renamed successfully{e}"}
+
+# Rename a device
+# Test PASSED (2024-03-06 10:10:31 AM)
+@logger.catch
+@app.post("/rename_device", tags= [tag_device_updates], dependencies=[Depends(authorize)])
+async def rename_device(objid: int, 
+                        value : str):
+    try:
+        # Set the device property
+        timestamp = datetime.now(timezone('US/Pacific')).strftime("%Y-%m-%d %I:%M:%S %p")
+        device = prtg_client.get_device(objid)
+
+        # Check to see if the device is already named that
+        # If it isn't, then rename it
+        if device['name'] != value:
+
+            prtg_client._set_obj_property_base(objid, 'name', value)
+
+            return_message = {
+                "message": f"Device renamed successfully",
+                "timestamp" : timestamp,
+                "old_device_name" : device['name'],
+                "new_device_name" : value,
+                "objid" : objid,
+            }
+            logger.info(return_message)
+            return return_message
+        else:
+            logger.error("Device was not renamed successfully: Device is already named that")
+            return {"error": "Device is already named that"}
+    except Exception as e:
+        logger.exception('Device was not renamed successfully: ' + str(e))
+        return {"error": f"Device was not renamed successfully{e}"}
+
+# Set the location of a device
+# Test PASSED (2024-03-06 10:13:34 AM)
+# USE WITH CAUTIION
+# It will disable inherit location for the device
+@app.post("/set_device_location", tags= [tag_device_updates], dependencies=[Depends(authorize)] )
+async def set_device_location(objid: int,
+                              location: str):
+    try:
+        # Set the obj property base
+        # In order to set a location, you must turn off inherit location
+
+        timestamp = datetime.now(timezone('US/Pacific')).strftime("%Y-%m-%d %I:%M:%S %p")
+
+        # Set the location
+        if prtg_client.get_device(objid)['location_raw'] != location:
+            
+            prtg_client.set_inherit_location_off(objid)
+            prtg_client.set_location(objid, location)
+
+            device = prtg_client.get_device(objid)
+
+            return_message = {
+                "message" : "Device location set, and inherit location turned off",
+                "timestamp" : timestamp,
+                "device_name" : device['name'],
+                "objid" : objid,
+                "device_location" : location,          
+            }
+            
+            logger.info(return_message)
+            return return_message
+        else:
+            logger.error("Device location was not set successfully: Device location is already set to that")
+            return {"error": "Device location is already set to that"}
+        
+    except Exception as e:
+        logger.exception('Device location was not set successfully: ' + str(e))
+        return {"error": f"Device location was not set successfully{e}"}
+
+# Odd bug with groups, the location is being set but does not show up when I call the groups endpoint
+# Groups can't have locations, But the devices in those groups can inherit the location of the group if it is turned on
+# Werid bug where get_groups does not show the location of the group
+# Use get object property instead
+# Test PASSED (2024-03-05 2024-03-06 10:26:40 AM)
+@logger.catch
+@app.post("/set_group_location", tags= [tag_device_updates], dependencies=[Depends(authorize)])
+async def set_group_location(objid: int,
+                             location: str):
+        try:
+            # Set the obj property base
+            # In order to set a location, you must turn off inherit location
+            group = prtg_client.get_group(objid)
+            timestamp = datetime.now(timezone('US/Pacific')).strftime("%Y-%m-%d %I:%M:%S %p")
+
+            prex_location = prtg_client._get_obj_property_base(objid,'location')
+
+            if prex_location != location:
+                prtg_client.set_inherit_location_off(objid)
+                prtg_client.set_location(objid, location)
+
+                return_message = {
+                    "message" : "Group location set, and inherit location turned off for group",
+                    "timestamp" : timestamp,
+                    "group_name" : group['name'],
+                    "objid" : objid,
+                    "group_location" : location,
+                }
+                logger.info(return_message)
+                return return_message
+            else:
+                logger.error("Group location was not set successfully: Group location is already set to that")
+                return {"error": "Group location is already set to that"}
+        except Exception as e:
+            logger.exception('Group location was not set successfully: ' + str(e))
+            return {"error": f"Group location was not set successfully{e}"}
+
+# Set the hostname of a device
+# Test PASSED (2024-03-05 10:50:27 AM)
+@logger.catch
+@app.post("/set_device_host", tags= [tag_device_updates], dependencies=[Depends(authorize)])
+async def set_device_hostname(objid: int,
+                              host: str):
+        try:
+            timestamp = datetime.now(timezone('US/Pacific')).strftime("%Y-%m-%d %I:%M:%S %p")
+
+            # Set the hostname property
+            # Check if hostname is already set to that
+            if prtg_client.get_device(objid)['host'] != host:
+                device = prtg_client.get_device(objid)
+                prtg_client.set_hostname(objid, host)
+
+                return_message = {
+                    "message" : "Device hostname set",
+                    "timestamp" : timestamp,
+                    "device_name" : device['name'],
+                    "objid" : objid,
+                    "old_device_host" : device['host'],
+                    "new_device_host" : host,
+                }
+                logger.info(return_message)
+                return return_message
+            else:
+                logger.error("Device hostname was not set successfully: Device hostname is already set to that")
+                return {"error": "Device hostname is already set to that"}
+        except Exception as e:
+            logger.exception('Device hostname was not set successfully: ' + str(e))
+            return {"error": f"Device host was not set successfully{e}"}
