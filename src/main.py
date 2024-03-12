@@ -398,7 +398,8 @@ def sync_all_sites(company_name: str = Form(..., description='Name of Company'),
           tags= [tag_device_updates],
           dependencies=[Depends(authorize)])
 async def sync_device_to_group(objid: int
-                                #host: str
+                                #hostname: str
+                                #ip: str
                                 #name: str
                                 #location: str
                                 #group_name: str
@@ -406,8 +407,10 @@ async def sync_device_to_group(objid: int
         try:
 
             # Simulate device info being imported from SNOW as arguments in the function
-            host = "127.0.0.1" # My local IP
-            name = f"Data Domain DataDomain 2200 ({host})" # Example Name
+            hostname = "example.example.com" # My local IP
+            ip = "127.0.0.1"
+            name = "Data Domain DataDomain 2200"
+            name_update = name + " (" + ip + ")"
             location = "130 Calle Magdalena, Encinitas, CA 92024" # In-N-Out Burger Location
             group_name = "Staging" # Example Group Name
 
@@ -439,21 +442,33 @@ async def sync_device_to_group(objid: int
                     
                     # Do a quick check to see if the device is already in that group
                     if device['group'] == group['name']:
-                        logger.info(f"Device is already in the staging group")
-                        return {"error": "Device is already in that group"}
+                        prtg_client.set_hostname(objid, hostname)
+                        prtg_client._set_obj_property_base(objid, 'name', name_update)
+                        prtg_client.set_inherit_location_off(objid)
+                        prtg_client.set_location(objid, location)
+                        return_message = {
+                            "message": f"Device is already in the {new_group_string} group, but credentials were updated",
+                            "timestamp" : timestamp,
+                            "device_name" : name_update,
+                            "objid" : objid,
+                            "group_name" : new_group_string,
+
+                        }
+                        logger.info(return_message)
+                        return return_message
                     else:
                         prtg_client.move_object(device['objid'], group['objid'])
                         
                         # Now that the object is moved, set its properties
-                        prtg_client.set_hostname(objid, host)
-                        prtg_client._set_obj_property_base(objid, 'name', name)
+                        prtg_client.set_hostname(objid, hostname)
+                        prtg_client._set_obj_property_base(objid, 'name', name_update)
                         prtg_client.set_inherit_location_off(objid)
                         prtg_client.set_location(objid, location)
 
                         return_message = {
-                            "message": f"Device moved to the staging group",
+                            "message": f"Device moved to the {new_group_string} group",
                             "timestamp" : timestamp,
-                            "device_name" : name,
+                            "device_name" : name_update,
                             "objid" : objid,
                             "new_group_name" : new_group_string,
                         }
@@ -464,16 +479,16 @@ async def sync_device_to_group(objid: int
             prtg_client.move_object(device['objid'], new_group['objid'])
 
             # Now that the object is moved, set it's properties
-            prtg_client.set_hostname(objid, host)
-            prtg_client._set_obj_property_base(objid, 'name', name)
+            prtg_client.set_hostname(objid, hostname)
+            prtg_client._set_obj_property_base(objid, 'name', name_update)
             prtg_client.set_inherit_location_off(objid)
             prtg_client.set_location(objid, location)
 
             # Return the message
             return_message = {
-                "message": f"Device moved to the staging group, and staging group was created",
+                "message": f"Device moved to the {new_group_string} group, and {new_group_string} group was created",
                 "timestamp" : timestamp,
-                "device_name" : name,
+                "device_name" : name_update,
                 "objid" : objid,
                 "new_group_name" : new_group_string
             }
@@ -483,8 +498,6 @@ async def sync_device_to_group(objid: int
 
 
         except Exception as e:
-            logger.exception(f"Device was not moved successfully{e}")
             return {"error": f"Device host was not set successfully{e}"}
             # Check if device 
-        
         
