@@ -309,12 +309,108 @@ def sync_all_sites(company_name: str = Form(..., description='Name of Company'),
     return f'Successfully added {len(devices_added)} devices to {company_name}.'
 
 
+# @logger.catch
+# @app.post("/sync_pro_device_to_stag", 
+#           tags= [tag_device_updates],
+#           dependencies=[Depends(authorize)])
+# async def change_production_device_location(objid: int
+#                                             #device info: dict)
+#                                             ):
+#         try:
+
+#             #Simulate device info
+#             name = "Test Device" # Imported from SNOW
+#             host = "127.0.0.1" # Imported from SNOW
+#             location = "Test Location" # Imported from SNOW
+
+#             # Store device info in a dictionary
+#             device_info = {
+#                 "name" : name,
+#                 "host" : host,
+#                 "location" : location,
+#             }
+
+#             timestamp = datetime.now(timezone('US/Pacific')).strftime("%Y-%m-%d %I:%M:%S %p")
+
+#             # Get the group name of the objid
+#             device =  prtg_client.get_device(objid)
+
+#             # Get the parent id of the objid
+#             parent_id = device['parentid']
+            
+#             # Get the grandparent group of the objid
+#             parent_group = prtg_client.get_group(parent_id)
+#             grandparent_group = prtg_client.get_group(parent_group['parentid'])
+#             production_string = grandparent_group["name"].split(" ")[1]
+
+#             # Get the company name for iterations later
+#             company_brackets = grandparent_group["name"].split(" ")[0]
+#             grandpa_string = grandparent_group['name'].replace("Production", "Staging")
+#             staging_group_string = company_brackets + " Staging"
+
+#             if production_string == "Production":
+#                 # Get all groups
+#                 all_groups = prtg_client.get_all_groups()
+
+#                 # Make a deepcopy of all_groups
+#                 # Iterating over all_groups will cause the iteration to only loop over the first element
+#                 # I am not sure why this is happening, must look at source code
+#                 all_groups_copy = copy.deepcopy(all_groups)
+
+#                 # Iterate over the group list and see if there is already a group with the name "[CN] Staging", CN = Company Name
+#                 for group in all_groups_copy:
+#                     if group['name'] == staging_group_string:
+#                         prtg_client.move_object(device['objid'], group['objid'])
+
+#                         return_message = {
+#                             "message": f"Device moved to the staging group",
+#                             "timestamp" : timestamp,
+#                             "device_name" : device['name'],
+#                             "objid" : objid,
+#                             "new_group_name" : group['name'],
+#                         }
+#                         logger.info(return_message)
+#                         return return_message
+                
+#                 # Since there is no group with the name "[CN] Staging", create a new group with that name
+#                 new_group = prtg_client.add_group(grandpa_string, grandparent_group['parentid'])
+#                 prtg_client.move_object(device['objid'], new_group['objid'])
+#                 return_message = {
+#                     "message": f"Device moved to the staging group, and staging group was created",
+#                     "timestamp" : timestamp,
+#                     "device_name" : device['name'],
+#                     "objid" : objid,
+#                     "new_group_name" : new_group['name']
+#                 }
+#                 logger.info(return_message)
+#                 return return_message
+            
+#             else:
+#                 logger.info(f"Device is already in the staging group")
+#                 return {"error": "Device is already in that group"}
+
+#         except Exception as e:
+#             logger.exception(f"Device was not moved successfully{e}")
+#             return {"error": f"Device host was not set successfully{e}"}
+#             # Check if device 
 @logger.catch
-@app.post("/sync_pro_device_to_stag", 
+@app.post("/sync_device_to_group", 
           tags= [tag_device_updates],
           dependencies=[Depends(authorize)])
-async def change_production_device_location(objid: int):
+async def sync_device_to_group(objid: int
+                                #host: str
+                                #name: str
+                                #location: str
+                                #group_name: str
+                                ):
         try:
+
+            # Simulate device info being imported from SNOW as arguments in the function
+            host = "127.0.0.1" # My local IP
+            name = f"Data Domain DataDomain 2200 ({host})" # Example Name
+            location = "130 Calle Magdalena, Encinitas, CA 92024" # In-N-Out Burger Location
+            group_name = "Staging" # Example Group Name
+
             timestamp = datetime.now(timezone('US/Pacific')).strftime("%Y-%m-%d %I:%M:%S %p")
 
             # Get the group name of the objid
@@ -326,56 +422,69 @@ async def change_production_device_location(objid: int):
             # Get the grandparent group of the objid
             parent_group = prtg_client.get_group(parent_id)
             grandparent_group = prtg_client.get_group(parent_group['parentid'])
-            production_string = grandparent_group["name"].split(" ")[1]
 
             # Get the company name for iterations later
             company_brackets = grandparent_group["name"].split(" ")[0]
-            grandpa_string = grandparent_group['name'].replace("Production", "Staging")
-            staging_group_string = company_brackets + " Staging"
+            new_group_string = company_brackets + " " + group_name
 
-            if production_string == "Production":
-                # Get all groups
-                all_groups = prtg_client.get_all_groups()
+            # Get all groups
+            all_groups = prtg_client.get_all_groups()
 
-                # Make a deepcopy of all_groups
-                # Iterating over all_groups will cause the iteration to only loop over the first element
-                # I am not sure why this is happening, must look at source code
-                all_groups_copy = copy.deepcopy(all_groups)
+            # Make a deepcopy of all_groups for proper iteration
+            all_groups_copy = copy.deepcopy(all_groups)
 
-                # Iterate over the group list and see if there is already a group with the name "[CN] Staging", CN = Company Name
-                for group in all_groups_copy:
-                    if group['name'] == staging_group_string:
+            # Iterate over the group list and see if there is already a group with the name "[CN] [group_name]", CN = Company Name
+            for group in all_groups_copy:
+                if group['name'] == new_group_string:
+                    
+                    # Do a quick check to see if the device is already in that group
+                    if device['group'] == group['name']:
+                        logger.info(f"Device is already in the staging group")
+                        return {"error": "Device is already in that group"}
+                    else:
                         prtg_client.move_object(device['objid'], group['objid'])
+                        
+                        # Now that the object is moved, set its properties
+                        prtg_client.set_hostname(objid, host)
+                        prtg_client._set_obj_property_base(objid, 'name', name)
+                        prtg_client.set_inherit_location_off(objid)
+                        prtg_client.set_location(objid, location)
 
                         return_message = {
                             "message": f"Device moved to the staging group",
                             "timestamp" : timestamp,
-                            "device_name" : device['name'],
+                            "device_name" : name,
                             "objid" : objid,
-                            "new_group_name" : group['name'],
+                            "new_group_name" : new_group_string,
                         }
                         logger.info(return_message)
                         return return_message
-                
-                # Since there is no group with the name "[CN] Staging", create a new group with that name
-                new_group = prtg_client.add_group(grandpa_string, grandparent_group['parentid'])
-                prtg_client.move_object(device['objid'], new_group['objid'])
-                return_message = {
-                    "message": f"Device moved to the staging group, and staging group was created",
-                    "timestamp" : timestamp,
-                    "device_name" : device['name'],
-                    "objid" : objid,
-                    "new_group_name" : new_group['name']
-                }
-                logger.info(return_message)
-                return return_message
+            # Since there is no group with the name "[CN] [group_name]", create a new group with that name
+            new_group = prtg_client.add_group(new_group_string, grandparent_group['parentid'])
+            prtg_client.move_object(device['objid'], new_group['objid'])
+
+            # Now that the object is moved, set it's properties
+            prtg_client.set_hostname(objid, host)
+            prtg_client._set_obj_property_base(objid, 'name', name)
+            prtg_client.set_inherit_location_off(objid)
+            prtg_client.set_location(objid, location)
+
+            # Return the message
+            return_message = {
+                "message": f"Device moved to the staging group, and staging group was created",
+                "timestamp" : timestamp,
+                "device_name" : name,
+                "objid" : objid,
+                "new_group_name" : new_group_string
+            }
+            logger.info(return_message)
+            return return_message
             
-            else:
-                logger.info(f"Device is already in the staging group")
-                return {"error": "Device is already in that group"}
+
 
         except Exception as e:
             logger.exception(f"Device was not moved successfully{e}")
             return {"error": f"Device host was not set successfully{e}"}
             # Check if device 
-                              
+        
+        
