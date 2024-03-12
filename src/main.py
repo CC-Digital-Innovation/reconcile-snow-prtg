@@ -18,6 +18,7 @@ from prtg.exception import ObjectNotFound
 from pydantic import SecretStr
 from pysnow.exceptions import MultipleResults, NoResults
 from requests.exceptions import HTTPError
+import copy
 
 from alt_email import EmailApi, EmailHeaderAuth
 from alt_prtg import PrtgController
@@ -308,275 +309,73 @@ def sync_all_sites(company_name: str = Form(..., description='Name of Company'),
     return f'Successfully added {len(devices_added)} devices to {company_name}.'
 
 
-
-# Get all devices
-# Test PASSED (2024-03-06 09:51 AM)
 @logger.catch
-@app.get("/get_all_devices", tags= [tag_device_info], dependencies=[Depends(authorize)])
-async def get_all_devices():
-    try:
-        get_devices = prtg_client.get_all_devices()
-        logger.info(f"Successfully retrieved all devices")
-        return get_devices
-    except Exception as e:
-        logger.exception('Could not retrieve all devices: ' + str(e))
-        return {"error": str(e)}
-        
-
-# Get all groups
-# Test PASSED (2024-03-06 09:51 AM)
-@logger.catch
-@app.get("/get_all_groups", tags= [tag_device_info], dependencies=[Depends(authorize)])
-async def get_group_info():
-    try:
-        get_groups = prtg_client.get_all_groups()
-        logger.info(f"Successfully retrieved all groups")
-        return get_groups
-    except Exception as e:
-        logger.exception('Could not retrieve all groups: ' + str(e))
-        return {"error": str(e)}
-
-
-# Get all devices in a group
-
-
-# Test PASSED ("2024-03-06 09:50:10 AM")
-@logger.catch
-@app.post("/move_device_groups", tags= [tag_device_updates], dependencies=[Depends(authorize)] )
-async def move_device_groups(objid : int, 
-                             new_group_objid : int):
-    
-    try:
-        device = prtg_client.get_device(objid)
-        group = prtg_client.get_group(new_group_objid)
-        
-        # Get the current time in PST and format it well with the time abbreviation at and import necessary modules
-        timestamp = datetime.now(timezone('US/Pacific')).strftime("%Y-%m-%d %I:%M:%S %p")
-
-        # Check to see if the objid is already in that group
-        if device['group'] != group['name']:
-            prtg_client.move_object(objid, new_group_objid)
-            # Get the name of the objid and the new_group_objid
-            return_message = {
-                "message": f"Device moved successfully",
-                "timestamp" : timestamp,
-                "device_name" : device['name'],
-                "old_group_name" : device['group'],
-                "new_group_name" : group['name'],
-                "objid" : objid,
-                "new_group_objid" : new_group_objid,
-                }
-            logger.info(return_message)
-            return return_message
-        else:
-            logger.error("Device was not moved successfully: Device is already in that group")
-            return {"error": "Device is already in that group"}
-
-    except Exception as e:
-        logger.exception('Device was not moved successfully: ' + str(e))
-        return {"error": f"Device was not moved successfully: {e}"}
-
-# Test PASSED (2024-03-06 10:31:50 AM)
-@logger.catch
-@app.post("/move_group_to_group", tags= [tag_device_updates], dependencies=[Depends(authorize)])
-async def move_group_to_group(groupid : int, 
-                              new_group_objid : int):
-    try:
-        timestamp = datetime.now(timezone('US/Pacific')).strftime("%Y-%m-%d %I:%M:%S %p")
-
-        group = prtg_client.get_group(groupid)
-        new_group = prtg_client.get_group(new_group_objid)
-
-        # Get the parentid of the groupid, and check if that
-        # parentid's group has the same name as the new_group_objid's name
-        group_parent_name = prtg_client.get_group(group["parentid"])["name"]
-
-        if group_parent_name != new_group["name"]:
-            # Check to see if the group is already in that group
-            prtg_client.move_object(groupid, new_group_objid)
-            return_message = {
-                    "message": f"Group moved successfully",
-                    "groupid" : groupid,
-                    "old_group_name" : group["name"],
-                    "new_group_name" : new_group["name"],
-                    "timestamp" : timestamp,
-                }
-            logger.info(return_message)
-            return return_message
-        else:
-            logger.error("Group was not moved successfully: Group is already in that group")
-            return {"error": "Group is already in that group"}
-    except Exception as e:
-        logger.exception('Group was not moved successfully: ' + str(e))
-        return {"error": f"Group was not moved successfully: {e}"}
-
-# Rename a device
-# Test PASSED (2024-03-06 10:05:24 AM)
-@logger.catch
-@app.post("/rename_group", tags= [tag_device_updates], dependencies=[Depends(authorize)])
-async def rename_group(objid: int, 
-                       value : str):
-    try:
-        # Set the device property
-        timestamp = datetime.now(timezone('US/Pacific')).strftime("%Y-%m-%d %I:%M:%S %p")
-        group = prtg_client.get_group(objid)
-
-        # Check to see if the group is already named that
-        # If it isn't, then rename it
-        if group['name'] != value:
-            prtg_client._set_obj_property_base(objid, 'name', value)
-            return_message = {
-                "message": f"Group renamed successfully",
-                "timestamp" : timestamp,
-                "old_group_name" : group['name'],
-                "new_group_name" : value,
-                "objid" : objid,
-            }
-            logger.info(return_message)
-            return return_message
-        else:
-            logger.error("Group was not renamed successfully: Group is already named that")
-            return {"error": "Group is already named that"}
-    except Exception as e:
-        return {"error": f"Group was not renamed successfully{e}"}
-
-# Rename a device
-# Test PASSED (2024-03-06 10:10:31 AM)
-@logger.catch
-@app.post("/rename_device", tags= [tag_device_updates], dependencies=[Depends(authorize)])
-async def rename_device(objid: int, 
-                        value : str):
-    try:
-        # Set the device property
-        timestamp = datetime.now(timezone('US/Pacific')).strftime("%Y-%m-%d %I:%M:%S %p")
-        device = prtg_client.get_device(objid)
-
-        # Check to see if the device is already named that
-        # If it isn't, then rename it
-        if device['name'] != value:
-
-            prtg_client._set_obj_property_base(objid, 'name', value)
-
-            return_message = {
-                "message": f"Device renamed successfully",
-                "timestamp" : timestamp,
-                "old_device_name" : device['name'],
-                "new_device_name" : value,
-                "objid" : objid,
-            }
-            logger.info(return_message)
-            return return_message
-        else:
-            logger.error("Device was not renamed successfully: Device is already named that")
-            return {"error": "Device is already named that"}
-    except Exception as e:
-        logger.exception('Device was not renamed successfully: ' + str(e))
-        return {"error": f"Device was not renamed successfully{e}"}
-
-# Set the location of a device
-# Test PASSED (2024-03-06 10:13:34 AM)
-# USE WITH CAUTIION
-# It will disable inherit location for the device
-@app.post("/set_device_location", tags= [tag_device_updates], dependencies=[Depends(authorize)] )
-async def set_device_location(objid: int,
-                              location: str):
-    try:
-        # Set the obj property base
-        # In order to set a location, you must turn off inherit location
-
-        timestamp = datetime.now(timezone('US/Pacific')).strftime("%Y-%m-%d %I:%M:%S %p")
-
-        # Set the location
-        if prtg_client.get_device(objid)['location_raw'] != location:
-            
-            prtg_client.set_inherit_location_off(objid)
-            prtg_client.set_location(objid, location)
-
-            device = prtg_client.get_device(objid)
-
-            return_message = {
-                "message" : "Device location set, and inherit location turned off",
-                "timestamp" : timestamp,
-                "device_name" : device['name'],
-                "objid" : objid,
-                "device_location" : location,          
-            }
-            
-            logger.info(return_message)
-            return return_message
-        else:
-            logger.error("Device location was not set successfully: Device location is already set to that")
-            return {"error": "Device location is already set to that"}
-        
-    except Exception as e:
-        logger.exception('Device location was not set successfully: ' + str(e))
-        return {"error": f"Device location was not set successfully{e}"}
-
-# Odd bug with groups, the location is being set but does not show up when I call the groups endpoint
-# Groups can't have locations, But the devices in those groups can inherit the location of the group if it is turned on
-# Werid bug where get_groups does not show the location of the group
-# Use get object property instead
-# Test PASSED (2024-03-05 2024-03-06 10:26:40 AM)
-@logger.catch
-@app.post("/set_group_location", tags= [tag_device_updates], dependencies=[Depends(authorize)])
-async def set_group_location(objid: int,
-                             location: str):
-        try:
-            # Set the obj property base
-            # In order to set a location, you must turn off inherit location
-            group = prtg_client.get_group(objid)
-            timestamp = datetime.now(timezone('US/Pacific')).strftime("%Y-%m-%d %I:%M:%S %p")
-
-            prex_location = prtg_client._get_obj_property_base(objid,'location')
-
-            if prex_location != location:
-                prtg_client.set_inherit_location_off(objid)
-                prtg_client.set_location(objid, location)
-
-                return_message = {
-                    "message" : "Group location set, and inherit location turned off for group",
-                    "timestamp" : timestamp,
-                    "group_name" : group['name'],
-                    "objid" : objid,
-                    "group_location" : location,
-                }
-                logger.info(return_message)
-                return return_message
-            else:
-                logger.error("Group location was not set successfully: Group location is already set to that")
-                return {"error": "Group location is already set to that"}
-        except Exception as e:
-            logger.exception('Group location was not set successfully: ' + str(e))
-            return {"error": f"Group location was not set successfully{e}"}
-
-# Set the hostname of a device
-# Test PASSED (2024-03-05 10:50:27 AM)
-@logger.catch
-@app.post("/set_device_host", tags= [tag_device_updates], dependencies=[Depends(authorize)])
-async def set_device_hostname(objid: int,
-                              host: str):
+@app.post("/sync_pro_device_to_stag", 
+          tags= [tag_device_updates],
+          dependencies=[Depends(authorize)])
+async def change_production_device_location(objid: int):
         try:
             timestamp = datetime.now(timezone('US/Pacific')).strftime("%Y-%m-%d %I:%M:%S %p")
 
-            # Set the hostname property
-            # Check if hostname is already set to that
-            if prtg_client.get_device(objid)['host'] != host:
-                device = prtg_client.get_device(objid)
-                prtg_client.set_hostname(objid, host)
+            # Get the group name of the objid
+            device =  prtg_client.get_device(objid)
 
+            # Get the parent id of the objid
+            parent_id = device['parentid']
+            
+            # Get the grandparent group of the objid
+            parent_group = prtg_client.get_group(parent_id)
+            grandparent_group = prtg_client.get_group(parent_group['parentid'])
+            production_string = grandparent_group["name"].split(" ")[1]
+
+            # Get the company name for iterations later
+            company_brackets = grandparent_group["name"].split(" ")[0]
+            grandpa_string = grandparent_group['name'].replace("Production", "Staging")
+            staging_group_string = company_brackets + " Staging"
+
+            if production_string == "Production":
+                # Get all groups
+                all_groups = prtg_client.get_all_groups()
+
+                # Make a deepcopy of all_groups
+                # Iterating over all_groups will cause the iteration to only loop over the first element
+                # I am not sure why this is happening, must look at source code
+                all_groups_copy = copy.deepcopy(all_groups)
+
+                # Iterate over the group list and see if there is already a group with the name "[CN] Staging", CN = Company Name
+                for group in all_groups_copy:
+                    if group['name'] == staging_group_string:
+                        prtg_client.move_object(device['objid'], group['objid'])
+
+                        return_message = {
+                            "message": f"Device moved to the staging group",
+                            "timestamp" : timestamp,
+                            "device_name" : device['name'],
+                            "objid" : objid,
+                            "new_group_name" : group['name'],
+                        }
+                        logger.info(return_message)
+                        return return_message
+                
+                # Since there is no group with the name "[CN] Staging", create a new group with that name
+                new_group = prtg_client.add_group(grandpa_string, grandparent_group['parentid'])
+                prtg_client.move_object(device['objid'], new_group['objid'])
                 return_message = {
-                    "message" : "Device hostname set",
+                    "message": f"Device moved to the staging group, and staging group was created",
                     "timestamp" : timestamp,
                     "device_name" : device['name'],
                     "objid" : objid,
-                    "old_device_host" : device['host'],
-                    "new_device_host" : host,
+                    "new_group_name" : new_group['name']
                 }
                 logger.info(return_message)
                 return return_message
+            
             else:
-                logger.error("Device hostname was not set successfully: Device hostname is already set to that")
-                return {"error": "Device hostname is already set to that"}
+                logger.info(f"Device is already in the staging group")
+                return {"error": "Device is already in that group"}
+
         except Exception as e:
-            logger.exception('Device hostname was not set successfully: ' + str(e))
+            logger.exception(f"Device was not moved successfully{e}")
             return {"error": f"Device host was not set successfully{e}"}
+            # Check if device 
+                              
