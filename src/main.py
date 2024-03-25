@@ -127,177 +127,6 @@ def custom_prtg_parameters(
     # use default PRTG instance
     return PrtgClient(PRTG_BASE_URL, prtg_auth, requests_verify=PRTG_VERIFY)
 
-# Make a function the sets the object properties name, hostname, and location. Since it is used multiple times.
-# !!!!! NOT TESTED !!!!! Make sure to test before using in production !!!!!!!!
-def set_prop_base(prtg_client, 
-                  objid : int, 
-                  hostname : str, 
-                  name_update : str, 
-                  location : str):
-
-    try:
-        logger.info(f"Setting properties for object {objid}...")
-        try:
-            prtg_client.set_hostname(objid, hostname)
-        except ObjectNotFound as e:
-            logger.exception(f"Hostname not set for object. Device can't be located {objid}. {e}")
-            raise HTTPException(status.HTTP_404_NOT_FOUND, f"Hostname not set for object. Device can't be located {objid}. {e}") 
-        
-        try:
-            prtg_client._set_obj_property_base(objid, 'name', name_update)
-        except ObjectNotFound as e:
-            logger.exception(f"Name not set for object. Device can't be located {objid}. {e}")
-            raise HTTPException(status.HTTP_404_NOT_FOUND, f"Name not set for object. Device can't be located {objid}. {e}") 
-        
-        try:
-            prtg_client.set_inherit_location_off(objid)
-        except ObjectNotFound as e:
-            logger.exception(f"Location not set for object. Device can't be located {objid}. {e}")
-            raise HTTPException(status.HTTP_404_NOT_FOUND, f"Inherit location was not turned off for this device. Device can't be located {objid}. {e}")
-        try:
-            prtg_client.set_location(objid, location)
-        except ObjectNotFound as e:
-            logger.exception(f"Location not set for object. Device can't be located. Objid: {objid}. {e}")
-            raise HTTPException(status.HTTP_404_NOT_FOUND, f"Location not set for object. Device can't be located {objid}. {e}")
-        
-    except Exception as e:
-        logger.exception(f"Device properties was not set successfully {e}")
-        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, f"Device properties was not set successfully {e}")
-        
-
-# !!! DO NOT USE IN PRODUCTION, TEST FIRST !!!
-def sync_device_to_group(prtg_client,
-                        objid : int,
-                        hostname : str,
-                        ip : str,
-                        name : str,
-                        location : str,
-                        group_name : str):
-    try:
-        # Simulate device info being imported from SNOW as arguments in the function
-        # hostname = "example.example.com" # My local IP
-        ip = "127.0.0.1"
-        name = "Data Domain DataDomain 2200"
-        name_update = name + " (" + ip + ")"
-        # location = "130 Calle Magdalena, Encinitas, CA 92024" # In-N-Out Burger Location
-        # group_name = "Staging" # Example Group Name
-        timestamp = datetime.now(timezone('US/Pacific')).strftime("%Y-%m-%d %I:%M:%S %p")
-
-        # Get the group name of the objid
-        try:
-            device =  prtg_client.get_device(objid)
-        except ObjectNotFound as e:
-            logger.exception(f"Device not found. Objid: {objid}. {e}")
-            raise HTTPException(status.HTTP_404_NOT_FOUND, f"Device not found. Objid: {objid}. {e}")
-        # Get the parent id of the objid
-        parent_id = device['parentid']
-        
-        # Get the grandparent group of the objid
-        try:
-            parent_group = prtg_client.get_group(parent_id)
-        except ObjectNotFound as e:
-            logger.exception(f"Parent group not found. Objid: {objid}. {e}")
-            raise HTTPException(status.HTTP_404_NOT_FOUND, f"Parent group not found. Objid: {objid}. {e}")
-        try:
-            grandparent_group = prtg_client.get_group(parent_group['parentid'])
-        except ObjectNotFound as e:
-            logger.exception(f"Grandparent group not found. Objid: {objid}. {e}")
-            raise HTTPException(status.HTTP_404_NOT_FOUND, f"Grandparent group not found. Objid: {objid}. {e}")
-
-
-        # Get the company name for iterations later
-        company_brackets = grandparent_group["name"].split(" ")[0]
-        new_group_string = company_brackets + " " + group_name
-
-        # Get all groups
-        try:
-            all_groups = prtg_client.get_all_groups()
-        except Exception as e:
-            logger.exception(f"Groups not found. Objid: {objid}. {e}")
-            raise HTTPException(status.HTTP_404_NOT_FOUND, f"Groups not found. Objid: {objid}. {e}")
-
-        # Make a deepcopy of all_groups for proper iteration
-        all_groups_copy = copy.deepcopy(all_groups)
-
-        # Iterate over the group list and see if there is already a group with the name "[CN] [group_name]", CN = Company Name
-        for group in all_groups_copy:
-            if group['name'] == new_group_string:
-                
-                # Do a quick check to see if the device is already in that group
-                if device['group'] == group['name']:
-                    try:
-                        # Call prop base function to set the properties
-                        set_prop_base(prtg_client, objid, hostname, name_update, location)
-                    except ObjectNotFound as e:
-                        logger.exception(f"Device properties not set. Objid: {objid}. {e}")
-                        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Device properties not set. Objid: {objid}. {e}")
-                    return_message = {
-                        "message": f"Device is already in the {new_group_string} group, but credentials were updated",
-                        "timestamp" : timestamp,
-                        "device_name" : name_update,
-                        "objid" : objid,
-                        "group_name" : new_group_string,
-
-                    }
-                    return return_message
-                else:
-                    try:
-                        prtg_client.move_object(device['objid'], group['objid'])
-                    except ObjectNotFound as e:
-                        logger.exception(f"Device not moved. Objid: {objid}. {e}")
-                        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Device not moved. Objid: {objid}. {e}")
-                    
-                    # Now that the object is moved, set its properties
-                    try:
-                        set_prop_base(prtg_client, objid, hostname, name_update, location)
-                    except ObjectNotFound as e:
-                        logger.exception(f"Device properties not set. Objid: {objid}. {e}")
-                        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Device properties not set. Objid: {objid}. {e}")
-
-                    return_message = {
-                        "message": f"Device moved to the {new_group_string} group",
-                        "timestamp" : timestamp,
-                        "device_name" : name_update,
-                        "objid" : objid,
-                        "new_group_name" : new_group_string,
-                    }
-                    return return_message
-        # Since there is no group with the name "[CN] [group_name]", create a new group with that name
-        try:
-            new_group = prtg_client.add_group(new_group_string, grandparent_group['parentid'])
-        except ObjectNotFound as e:
-            logger.exception(f"Group not created. Objid: {objid}. {e}")
-            raise HTTPException(status.HTTP_404_NOT_FOUND, f"Group not created. Objid: {objid}. {e}")
-        try: 
-            prtg_client.move_object(device['objid'], new_group['objid'])
-        except ObjectNotFound as e:
-            logger.exception(f"Device not moved. Objid: {objid}. {e}")
-            raise HTTPException(status.HTTP_404_NOT_FOUND, f"Device not moved. Objid: {objid}. {e}")
-
-        # Now that the object is moved, set it's properties
-        try:
-            set_prop_base(prtg_client, objid, hostname, name_update, location)
-        except ObjectNotFound as e:
-            logger.exception(f"Device properties not set. Objid: {objid}. {e}")
-            raise HTTPException(status.HTTP_404_NOT_FOUND, f"Device properties not set. Objid: {objid}. {e}")
-    
-        # Return the message
-        return_message = {
-            "message": f"Device moved to the {new_group_string} group, and {new_group_string} group was created",
-            "timestamp" : timestamp,
-            "device_name" : name_update,
-            "objid" : objid,
-            "new_group_name" : new_group_string
-        }
-        return return_message
-    except Exception as e:
-        logger.exception(f"Device host was not set successfully{e}")
-        return {"error": f"Device host was not set successfully{e}"}
-        # Check if device
-
-
-
-
 
 logger.info('Starting up XSAutomate API...')
 desc = f'Defaults to the "{PRTG_BASE_URL.split("://")[1]}" instance. In order to use a different PRTG instance, enter the URL and credential parameters before\
@@ -471,5 +300,178 @@ def sync_all_sites(company_name: str = Form(..., description='Name of Company'),
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, 'An unexpected error occurred.')
     return f'Successfully added {len(devices_added)} devices to {company_name}.'
 
+@logger.catch
+def set_prop_base(prtg_client,
+                  objid: int,
+                  hostname : str,
+                  name_update : str,
+                  location : str):
+    try:
+        prtg_client.set_hostname(objid, hostname)
+    except HTTPException as e:
+        logger.error(f"Hostname not set: {e}")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Device host was not set successfully: {e}")
+    try:
+        prtg_client._set_obj_property_base(objid, 'name', name_update)
+    except HTTPException as e:
+        logger.error(f"Name not set: {e}")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Device name was not set successfully: {e}")
+    try:
+        prtg_client.set_inherit_location_off(objid)
+    except HTTPException as e:
+        logger.error(f"Location not set: {e}")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Device location was not set successfully: {e}")
+    try:
+        prtg_client.set_location(objid, location)
+    except HTTPException as e:
+        logger.error(f"Location not set: {e}")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Device location was not set successfully: {e}")
 
 
+#url, api key | manufucater model, manufacturer number ---> name
+@logger.catch
+@app.get("/api/v1/snow_prtg/sync_device_to_group")
+def sync_device_to_group(objid: int,
+                                #prtg_url: str,
+                                #prtg_api_key: str,
+                                #hostname: str,
+                                #ip: str,
+                                #manufactuer_model : str,
+                                #manufacturer_number: str,
+                                #location: str,
+                                #group_name: str,
+                                ):
+        try:
+            # Create a new client
+            # If the group does not exist, it creates a group under [CN] Customer Managed Infrastructure
+            # If the group does exist, it moves the device to that group
+            try:
+                # For testing purposes, declare keys
+                # For production, keep the keys commented out
+                # prtg_url = config["prtg_url"]
+                # prtg_api_key = config["prtg_key"]
+                auth = BasicToken(prtg_api_key)
+                client = PrtgClient(f'https://{prtg_url}', auth, requests_verify=True)
+            except HTTPException as e:
+                logger.error(f"Error creating PRTG client: {e}")
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Error creating PRTG client: {e}")
+
+            # Simulate device info being imported from SNOW as arguments in the function
+            hostname = "example.example.com" 
+            ip = "127.0.0.1"# My local IP
+            #Manufacturer Model, Manufacturer number
+            manufactuer_model = "model"
+            manufacturer_number = "model_number"
+            name_update = manufactuer_model + " " + manufacturer_number + " (" + ip + ")"
+            location = "130 Calle Magdalena, Encinitas, CA 92024" # In-N-Out Burger Location
+            group_name = "Staging" # Example Group Name
+
+            timestamp = datetime.now(timezone('US/Pacific')).strftime("%Y-%m-%d %I:%M:%S %p")
+            
+
+            # Get the group name of the objid
+            try:
+                device =  client.get_device(objid)
+            except HTTPException as e:
+                logger.error(f"Device was not found: {e}")
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Device was not found{e}")
+            # Get the parent id of the objid
+            parent_id = device['parentid']
+            
+            # Get the grandparent group of the objid
+            try:
+                parent_group = client.get_group(parent_id)
+            except HTTPException as e:
+                logger.error(f"Parent group was not found: {e}")
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Parent group was not found{e}")
+            
+            try:
+                grandparent_group = client.get_group(parent_group['parentid'])
+            except HTTPException as e:
+                logger.error(f"Grandparent group was not found: {e}")
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Grandparent group was not found{e}")
+
+            # Get the company name for iterations later
+            company_brackets = grandparent_group["name"].split(" ")[0]
+            new_group_string = company_brackets + " " + group_name
+
+            # Get all groups
+            try:
+                all_groups = client.get_all_groups()
+            except HTTPException as e:
+                logger.error(f"Groups were not found: {e}")
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Groups were not found{e}")
+
+            # Make a deepcopy of all_groups for proper iteration
+            all_groups_copy = copy.deepcopy(all_groups)
+
+            # Iterate over the group list and see if there is already a group with the name "[CN] [group_name]", CN = Company Name
+            for group in all_groups_copy:
+                if group['name'] == new_group_string:
+                    
+                    # Do a quick check to see if the device is already in that group
+                    if device['group'] == group['name']:
+
+                        set_prop_base(client, objid, hostname, name_update, location)
+                        return_message = {
+                            "message": f"Device is already in the {new_group_string} group, but credentials were updated",
+                            "timestamp" : timestamp,
+                            "device_name" : name_update,
+                            "objid" : objid,
+                            "group_name" : new_group_string,
+
+                        }
+                        return return_message
+                    else:
+                        try:
+                            client.move_object(device['objid'], group['objid'])
+                        except HTTPException as e:
+                            logger.error(f"Device was not moved successfully: {e}")
+                            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Device was not moved successfully: {e}")
+                        
+                        # Now that the object is moved, set its properties
+                        set_prop_base(client, objid, hostname, name_update, location)
+
+                        return_message = {
+                            "message": f"Device moved to the {new_group_string} group",
+                            "timestamp" : timestamp,
+                            "device_name" : name_update,
+                            "objid" : objid,
+                            "new_group_name" : new_group_string,
+                        }
+                        return return_message
+            # Since there is no group with the name "[CN] [group_name]", create a new group with that name
+            try:
+                new_group = client.add_group(new_group_string, grandparent_group['parentid'])
+            except HTTPException as e:
+                logger.error(f"Group was not created successfully: {e}")
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Group was not created successfully: {e}")
+            try:
+                client.move_object(device['objid'], new_group['objid'])
+            except HTTPException as e:
+                logger.error(f"Device was not moved successfully: {e}")
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Device was not moved successfully: {e}")
+
+            # Now that the object is moved, set it's properties
+
+            set_prop_base(client, objid, hostname, name_update, location)
+
+            # Return the message
+            return_message = {
+                "message": f"Device moved to the {new_group_string} group, and {new_group_string} group was created",
+                "timestamp" : timestamp,
+                "device_name" : name_update,
+                "objid" : objid,
+                "new_group_name" : new_group_string
+            }
+            return return_message
+            
+        # Maybe add feature that checks if there are any empty groups in Customer Managed Infrastructure and if there are deletes them
+
+        except HTTPException as e:
+            logger.error(f"Device was not moved successfully: {e}")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Device was not moved successfully: {e}")
+            # Check if device 
+        except Exception as e:
+            logger.error(f"Device was not moved successfully: {e}")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Device was not moved successfully: {e}")
