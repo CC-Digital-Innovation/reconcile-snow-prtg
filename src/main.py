@@ -25,14 +25,13 @@ from alt_prtg import PrtgController
 from report import get_add_device_model
 from snow import ApiClient as SnowClient
 from snow import SnowController, get_prtg_tree_adapter
+from snow.models.record import SnowData
+
 from sync import sync_trees, RootMismatchException
 
 from datetime import datetime
 from pytz import timezone
 
-from pydantic import BaseModel
-
-#
 
 # load secrets from .env
 # loaded secrets will not overwrite existing environment variables
@@ -303,236 +302,65 @@ def sync_all_sites(company_name: str = Form(..., description='Name of Company'),
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, 'An unexpected error occurred.')
     return f'Successfully added {len(devices_added)} devices to {company_name}.'
 
-@logger.catch
-def set_prop_base(prtg_client,
-                  objid: int,
-                  hostname : str,
-                  name_update : str,
-                  location : str):
-    try:
-        prtg_client.set_hostname(objid, hostname)
-    except HTTPException as e:
-        logger.error(f"Hostname not set: {e}")
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Device host was not set successfully: {e}")
-    try:
-        prtg_client._set_obj_property_base(objid, 'name', name_update)
-    except HTTPException as e:
-        logger.error(f"Name not set: {e}")
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Device name was not set successfully: {e}")
-    try:
-        prtg_client.set_inherit_location_off(objid)
-    except HTTPException as e:
-        logger.error(f"Location not set: {e}")
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Device location was not set successfully: {e}")
-    try:
-        prtg_client.set_location(objid, location)
-    except HTTPException as e:
-        logger.error(f"Location not set: {e}")
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Device location was not set successfully: {e}")
-
-
-class SnowData(BaseModel):
-    # PRTG KEYS
-    prtg_url: str
-    prtg_api_key: str
-
-    #PRTG Inputs
-    objid: int
-    hostname: str
-    ip: str
-    manufactuer_model : str
-    manufacturer_number: str 
-    location: str
-
-    # Parent Group
-    category: str = None
-    prex_category: str 
-
-    # Grandparent Group
-    used_for: str = None
-    prex_used_for: str 
-
-    min_devices: int = None
 
 
 
-def get_groups_by_group_id(client, group_id):
-        """Get groups by parent group
-
-        Args:
-            group_id (Union[int, str]): id of parent group
-
-        Returns:
-            list[dict]: devices and their details
-        """
-        params = {'id': group_id}
-        return client._get_groups_base(params)
-
-
-def get_empty_group(client,groupid):
-    # Check if the group has no devices in 
-    get_devices = client.get_devices_by_group_id(groupid)
-        
-    return get_devices
         
 @logger.catch
-@app.post("/api/v3/snow_prtg/sync_device_to_group")
-def sync_device_to_group_v2(snow_data: SnowData):
-        
+@app.post("/sync_device")
+def sync_device(snow_data: SnowData):
+
+
         try:
-            name_update = snow_data.manufactuer_model + " " + snow_data.manufacturer_number + " (" + snow_data.ip + ")"
-
-            try:
-                auth = BasicToken(snow_data.prtg_api_key)
-                client = PrtgClient(f'https://{snow_data.prtg_url}', auth, requests_verify=True)
-            except HTTPException as e:
-                logger.error(f"Error creating PRTG client: {e}")
-                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Error creating PRTG client: {e}")
-            
-            # Case 1: Example case of Moving Used For Group: Moves the device to a "Category" group within the great grandparent group.
-            #                                                Check if there is already a grandparent group with the name "[CN] [used_for]"
-
-            #                                                If there is ---- > Check if it has the category group already---> If it does move the device to that category group ---> If it doesn't create the category group and move the device to that category group                                           
-            #                                                If it doesn't have that grandparent group, create it and create the category group---> Move the device to that category group
-
-                    # category =  None;
-                    # prex_category = 'Server'; 
-                    # used_for = 'Staging'; 
-                    # prex_used_for = 'Production'; 
-                    # Change the group
-            try:
-                # Get parent group of device for company brackets
-                device = client.get_device(snow_data.objid)
-                parent_group = client.get_group(device['parentid'])
-                groupid_copy = copy.deepcopy(parent_group['objid'])
-                grandparent_group = client.get_group(parent_group['parentid'])
-                grandparent_groupid_copy = copy.deepcopy(grandparent_group['objid'])
-                great_grandparent_group = client.get_group(grandparent_group['parentid'])
-                company_brackets = parent_group["name"].split(" ")[0]
-
-                if snow_data.category == None:
-                    # Check if the used_for group exists
-                    grandparent_used_for = company_brackets + " " + snow_data.used_for
-                    category_group = company_brackets + " " + snow_data.prex_category  
-
-                   # In the great_grandparent group, check if the grandparent group exists using the grandparent group name and the get_groups_by_id function
-                    great_grandparent_groups = get_groups_by_group_id(client, great_grandparent_group['objid'])
-
-                    dummy_grandparent_group_exist = False
-                    for each_grandparent in great_grandparent_groups:
-                        if each_grandparent['name'] == grandparent_used_for:
-                            # Check if the category group exists in the grandparent group
-                            dummy_grandparent_group_exist = True
-                            dummy_category_exist = False
-                            category_group_exist = get_groups_by_group_id(client, each_grandparent['objid'])
-
-                            for each_category in category_group_exist:
-                                if each_category['name'] == category_group:
-                                    # Move the device to the category group
-                                    client.move_object(snow_data.objid, each_category['objid'])
-                                    set_prop_base(client,
-                                                snow_data.objid, 
-                                                snow_data.hostname, 
-                                                name_update, 
-                                                snow_data.location)
-                                    if get_empty_group(client,groupid_copy) == []:
-                                        client.delete_object(groupid_copy)
-                                    if get_empty_group(client,grandparent_groupid_copy) == []:
-                                        client.delete_object(grandparent_groupid_copy)
-                                    dummy_category_exist = True
-                                    break
-
-                            if dummy_category_exist == False:
-                            # It doesn't exist, create the category group within the grandparent group and move the device to it
-                                category_group = client.add_group(category_group, each_grandparent['objid'])
-                                # Move the device to the category group
-                                client.move_object(snow_data.objid, category_group['objid'])
-                                set_prop_base(client,
-                                            snow_data.objid, 
-                                            snow_data.hostname, 
-                                            name_update, 
-                                            snow_data.location)
-                                if get_empty_group(client,groupid_copy) == []:
-                                        client.delete_object(groupid_copy)
-                                if get_empty_group(client,grandparent_groupid_copy) == []:
-                                    client.delete_object(grandparent_groupid_copy)
-                                break
-
-                    
-                    if dummy_grandparent_group_exist == False:
-                        #Create the grandparent group and the category group and move the device to the category group
-                        grandparent_used_for_group = client.add_group(grandparent_used_for, great_grandparent_group['objid'])
-                        category_group = client.add_group(category_group, grandparent_used_for_group['objid'])
-                        # Move the device to the category group
-                        client.move_object(snow_data.objid, category_group['objid'])
-                        set_prop_base(client,
-                                    snow_data.objid, 
-                                    snow_data.hostname, 
-                                    name_update, 
-                                    snow_data.location)
-                        if get_empty_group(client,groupid_copy) == []:
-                                client.delete_object(groupid_copy)
-                        if get_empty_group(client,grandparent_groupid_copy) == []:
-                            client.delete_object(grandparent_groupid_copy)
-                
-                    
-            # Case 2: Example case of Moving Category Group: Moves the device to another group within the same grandparent group
-             #                                                Check if the device has the parent group already, if it doesn't-----> Create it and move the device to it ----> if it does ----> Move it to the existing group parent_group                                                                                 
-                    # category =  'Backup';
-                    # prex_category = 'Server'; 
-                    # used_for = None; 
-                    # prex_used_for = 'Production'; 
-
-            # Before you make any movements, check if the device is already in the location
-                elif snow_data.used_for == None:
-                        # Check if the category group exists
-                        category_group = company_brackets + " " + snow_data.category
-                        
-                        #Check if the device has the parent group already
-                        grandparent_category_exist = get_groups_by_group_id(client, grandparent_group['objid'])
-
-                        dummy_category_group_exist = False
-                        for each in grandparent_category_exist:
-                            if each['name'] == category_group:
-                                # Move the device to the category group
-                                # Store the parentid of the group
-                                client.move_object(snow_data.objid, each['objid'])
-                                # Check if the group you moved from is empty
-                                if get_empty_group(client,groupid_copy) == []:
-                                    client.delete_object(groupid_copy)
-
-                                set_prop_base(client,
-                                            snow_data.objid, 
-                                            snow_data.hostname, 
-                                            name_update, 
-                                            snow_data.location)
-                                dummy_category_group_exist = True
-                                break
-                        if dummy_category_group_exist == False:
-                            # Category doesn't exist, create the category group within the grandparent group and move the device to it
-                            category_group = client.add_group(category_group, grandparent_group['objid'])
-                            set_prop_base(client,
-                                        snow_data.objid, 
-                                        snow_data.hostname, 
-                                        name_update, 
-                                        snow_data.location)
-                            # Move the device to the category group
-                            client.move_object(snow_data.objid, category_group['objid'])
-                            if get_empty_group(client,groupid_copy) == []:
-                                client.delete_object(groupid_copy)
-                        
-                        
-                                    
-
-            except Exception as e:
-                logger.error(f"Error getting grandparent group: {e}")
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Error getting grandparent group: {e}")
-
-
-
+            auth = BasicToken(snow_data.prtg_api_key)
+            client = PrtgClient(f'https://{snow_data.prtg_url}', auth, requests_verify=True)
+            prtg_controller = PrtgController(client)
         except HTTPException as e:
-            logger.error(f"Any HTTP EXCEPTION: {e}")
+            logger.error(f"Error creating PRTG client: {e}")
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Error creating PRTG client: {e}")
+
+        try:
+            # Get parent group of device for company brackets
+            device = client.get_device(snow_data.objid)
+            parent_group = client.get_group(device['parentid'])
+            company_brackets = parent_group["name"].split(" ")[0]
+
+            # Get the grandparent group
+            grandparent_group = client.get_group(parent_group['parentid'])
+        
+            # Check if the used_for group exists
+            grandparent_used_for = company_brackets + " " + snow_data.used_for
+            category_group = company_brackets + " " + snow_data.category
+
+            try:
+                used_for_group = prtg_controller.get_group_existence(grandparent_group["parentid"], grandparent_used_for)
+            except Exception as e:
+                logger.info(f"Creating grandparent group instead :{e}")
+                # Move the device to the category group in the used_for group and set it's properties
+                great_grandparent_group = client.add_group(grandparent_used_for, grandparent_group['parentid'])
+                category_group = client.add_group(category_group, great_grandparent_group['objid'])
+                prtg_controller.moveobj_setproperties_deleteobj(snow_data, category_group['objid'], parent_group, grandparent_group)
+                return "Device moved to great-grandparent group and category group created"
+            
+            # Since the grandparent group exists, check if the category group exists within the grandparent group
+            try:
+                category_group = prtg_controller.get_group_existence(used_for_group['objid'], category_group)
+            except Exception as e:
+                logger.info(f"Creating category group instead :{e}")
+                # Move the device to the category group and set it's properties
+                category_group = client.add_group(category_group, used_for_group['objid'])
+                prtg_controller.moveobj_setproperties_deleteobj(snow_data, category_group['objid'], parent_group, grandparent_group)
+                return "Device moved to category group"
+            
+            # Since the category group exists, move the device to the category group and set it's properties
+            try:
+                prtg_controller.moveobj_setproperties_deleteobj(snow_data, category_group['objid'], parent_group, grandparent_group)
+                return "Device moved to category group"
+            except Exception as e:
+                logger.error(f"Error moving device to category group: {e}")
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Error moving device to category group: {e}")
+            
+                
         except Exception as e:
-            logger.error(f"All Uncaught Exceptions: {e}")
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Error creating PRTG client: {e}")
+            logger.error(f"Error getting grandparent group: {e}")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Error getting grandparent group: {e}")
