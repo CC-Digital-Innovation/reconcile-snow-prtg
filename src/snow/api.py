@@ -113,6 +113,7 @@ class ApiClient:
             .AND().field('u_category').equals(category)
             .AND().field('u_used_for').equals(stage)
             .AND().field('u_cc_type').equals('root')
+            .AND().field('u_prtg_implementation').equals('true')
             .AND().field('u_prtg_instrumentation').equals('false')
         )
         response = cis.get(query=query)
@@ -132,6 +133,7 @@ class ApiClient:
             .AND().field('location.name').equals(site_name)
             .AND().field('u_cc_type').equals('root')
             .OR().field('u_cc_type').is_empty()
+            .AND().field('u_prtg_implementation').equals('true')
         )
         response = cis.get(query=query)
         return response.all()
@@ -149,6 +151,7 @@ class ApiClient:
             .OR().field('install_status').equals('107')     # Duplicate installed
             .AND().field('location.name').equals(site_name)
             .AND().field('u_cc_type').equals('root')
+            .AND().field('u_prtg_implementation').equals('true')
             .AND().field('u_prtg_instrumentation').equals('true')
         )
         response = cis.get(query=query)
@@ -167,6 +170,7 @@ class ApiClient:
             .OR().field('install_status').equals('107')     # Duplicate installed
             .AND().field('location.name').equals(site_name)
             .AND().field('u_cc_type').equals('root')
+            .AND().field('u_prtg_implementation').equals('true')
             .AND().field('u_prtg_instrumentation').equals('false')
         )
         response = cis.get(query=query)
