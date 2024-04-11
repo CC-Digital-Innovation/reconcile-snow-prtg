@@ -18,7 +18,6 @@ from prtg.exception import ObjectNotFound
 from pydantic import SecretStr
 from pysnow.exceptions import MultipleResults, NoResults
 from requests.exceptions import HTTPError
-import copy
 
 from alt_email import EmailApi, EmailHeaderAuth
 from alt_prtg import PrtgController
@@ -315,10 +314,10 @@ def sync_device(snow_data: SnowData):
             auth = BasicToken(snow_data.prtg_api_key)
             client = PrtgClient(f'https://{snow_data.prtg_url}', auth, requests_verify=True)
             prtg_controller = PrtgController(client)
-        except HTTPException as e:
-            logger.error(f"Error creating PRTG client: {e}")
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Error creating PRTG client: {e}")
-
+        except Exception:
+            logger.error(f"Error creating PRTG client")
+            return HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Error creating PRTG client")
+        
         try:
             # Get parent group of device for company brackets
             device = client.get_device(snow_data.objid)
@@ -334,33 +333,38 @@ def sync_device(snow_data: SnowData):
 
             try:
                 used_for_group = prtg_controller.get_group_existence(grandparent_group["parentid"], grandparent_used_for)
-            except Exception as e:
-                logger.info(f"Creating grandparent group instead :{e}")
+            except ObjectNotFound as e:
+                logger.info(f"Creating grandparent group instead: {e}")
                 # Move the device to the category group in the used_for group and set it's properties
-                great_grandparent_group = client.add_group(grandparent_used_for, grandparent_group['parentid'])
-                category_group = client.add_group(category_group, great_grandparent_group['objid'])
-                prtg_controller.moveobj_setproperties_deleteobj(snow_data, category_group['objid'], parent_group, grandparent_group)
-                return "Device moved to great-grandparent group and category group created"
+                grandparent_group = client.add_group(grandparent_used_for, grandparent_group['parentid'])
+                category_group = client.add_group(category_group, grandparent_group['objid'])
+                prtg_controller.moveobj_setproperties_deleteobj(snow_data, category_group['objid'], parent_group)
+                return f"{grandparent_group['name']}, {category_group['name']} created; Device moved to {category_group['name']} within {grandparent_group['name']}"
             
             # Since the grandparent group exists, check if the category group exists within the grandparent group
             try:
                 category_group = prtg_controller.get_group_existence(used_for_group['objid'], category_group)
-            except Exception as e:
+            except ObjectNotFound as e:
                 logger.info(f"Creating category group instead :{e}")
                 # Move the device to the category group and set it's properties
                 category_group = client.add_group(category_group, used_for_group['objid'])
-                prtg_controller.moveobj_setproperties_deleteobj(snow_data, category_group['objid'], parent_group, grandparent_group)
-                return "Device moved to category group"
+                prtg_controller.moveobj_setproperties_deleteobj(snow_data, category_group['objid'], parent_group)
+                return f"{used_for_group['name']} exists; {category_group['name']} created; Device moved to {category_group['name']} within {used_for_group['name']}"
             
-            # Since the category group exists, move the device to the category group and set it's properties
+            # Since the category group exists within the existing grandparent group, move the device to the category group and set it's properties
             try:
-                prtg_controller.moveobj_setproperties_deleteobj(snow_data, category_group['objid'], parent_group, grandparent_group)
-                return "Device moved to category group"
+                prtg_controller.moveobj_setproperties_deleteobj(snow_data, category_group['objid'], parent_group)
+                return f"{category_group['name']}, {used_for_group['name']} exist; Device moved to {used_for_group['name']} within {category_group['name']}"
             except Exception as e:
-                logger.error(f"Error moving device to category group: {e}")
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Error moving device to category group: {e}")
+                logger.error(f"Unexpected Error: {e}")
+                raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, 'An unexpected error occurred.')
+
             
-                
+        except HTTPException as e:
+            # Reraise already handled exception
+            logger.error(e)
+            raise e
         except Exception as e:
-            logger.error(f"Error getting grandparent group: {e}")
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Error getting grandparent group: {e}")
+            # Catch all other unhandled exceptions
+            logger.exception('Unhandled error: ' + str(e))
+            raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, 'An unexpected error occurred.')

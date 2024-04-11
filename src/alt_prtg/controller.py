@@ -145,52 +145,39 @@ class PrtgController:
         return root
     
     def set_device_properties(self, objid: Union[str, int], hostname: str = None, name_update: str = None, location: str = None):
-    # Set the hostname, name, and location for the device
-    # If the fields are not provided, they will not be updated
-        try:
-            if hostname:
-                self.client.set_hostname(objid, hostname)
-            
-            if name_update:
-                self.client._set_obj_property_base(objid, 'name', name_update)
-            
-            if location:
-                self.client.set_inherit_location_off(objid)
-                self.client.set_location(objid, location)
-
-            device = self.client.get_device(objid)
-            return device
-        except Exception as e:
-            # Handle any exceptions here
-            pass
+        if hostname:
+            self.client.set_hostname(objid, hostname)
+        
+        if name_update:
+            self.client._set_obj_property_base(objid, 'name', name_update)
+        
+        if location:
+            self.client.set_inherit_location_off(objid)
+            self.client.set_location(objid, location)
 
 
-    def moveobj_setproperties_deleteobj(self, snow_data : SnowData, objid : Union[str, int], parent_group : Dict, grandparent_group : Dict):
+    def moveobj_setproperties_deleteobj(self, snow_data : SnowData, objid : Union[str, int], parent_group : Dict):
             
             name_update = snow_data.manufactuer_model + " " + snow_data.manufacturer_number + " (" + str(snow_data.ip) + ")"
             
             # Make copies for deletion of group if empty
-            groupid_copy = copy.deepcopy(parent_group['objid'])
-            grandparent_groupid_copy = copy.deepcopy(grandparent_group['objid'])
+            groupid_copy = copy.deepcopy(parent_group['objid'])         
+            grandparent_groupid_copy = copy.deepcopy(parent_group['parentid'])
 
-            self.client.move_object(snow_data.objid, objid) # each_category['objid']
-
+            self.client.move_object(snow_data.objid, objid) 
             self.set_device_properties(snow_data.objid, snow_data.hostname, name_update, snow_data.location)
-            
+
+
             if self.client.get_devices_by_group_id(groupid_copy) == []:
                 self.client.delete_object(groupid_copy)
-
             if self.client.get_devices_by_group_id(grandparent_groupid_copy) == []:
                 self.client.delete_object(grandparent_groupid_copy)
 
-    # Check to see if the group name exists within that parent groupid
-    # If it does return the group that exists within the parent group
     def get_group_existence(self, objid: Union[str,int], group_name: str):
-            # Returns a group that exists within the objid given the name
 
         groups = self.client.get_groups_by_group_id(objid)
         for group in groups:
             if group['name'] == group_name:
-                return group
-        
-        raise Exception("Group does not exist in that groupid")   
+                return group  
+                    
+        raise ObjectNotFound(f'Group {group_name} not found in parent group.')  
