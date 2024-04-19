@@ -3,8 +3,8 @@ from typing import Dict, List, Union
 from prtg import ApiClient, Icon
 from prtg.exception import ObjectNotFound
 
-from .models import Device, Group, Node, Status
-
+from .models import Device, Group, Node, Status, Properties
+from snow.models.record import SnowData
 
 class PrtgController:
     def __init__(self, client: ApiClient):
@@ -141,3 +141,48 @@ class PrtgController:
                 group_map[prtg_obj.id] = new_node
                 existing_node = new_node
         return root
+    
+    def set_properties(self, objid: Union[str, int], properties: Properties, device: Dict):
+
+        if properties.name and properties.name != device['name']:
+            self.client._set_obj_property_base(objid, 'name', properties.name)
+
+        if properties.host and properties.host != device['host']:
+            self.client.set_hostname(objid, properties.host)
+
+        if properties.location and properties.location != device['location']:
+            self.client.set_inherit_location_off(objid)
+            self.client.set_location(objid, properties.location)
+
+
+    def moveobj_setproperties_deleteobj(self, snow_data : SnowData, objid : Union[str, int], device : Dict, parent_group : Dict):
+            
+            name_update = snow_data.manufactuer_model + " " + snow_data.manufacturer_number + " (" + str(snow_data.ip) + ")"
+            
+            self.client.move_object(snow_data.objid, objid) 
+
+            snow_properties = Properties(name_update, snow_data.hostname, snow_data.location)
+            
+            self.set_properties(snow_data.objid, snow_properties, device)
+
+            if self.client.get_devices_by_group_id(parent_group['objid']) == []:
+                self.client.delete_object(parent_group['objid'])
+            if self.client.get_devices_by_group_id(parent_group['parentid']) == []:
+                self.client.delete_object(parent_group['parentid'])
+
+    def get_group_existence(self, objid: Union[str,int], group_name: str):
+
+        groups = self.client.get_groups_by_group_id(objid)
+
+        for group in groups:
+            if group['name'] == group_name:
+                return group
+            
+        return []
+
+
+        
+        
+
+        
+

@@ -25,6 +25,7 @@ from report import get_add_device_model
 from snow import ApiClient as SnowClient
 from snow import SnowController, get_prtg_tree_adapter
 from sync import sync_trees, RootMismatchException
+from snow.models.record import SnowData
 
 
 # load secrets from .env
@@ -293,3 +294,92 @@ def sync_all_sites(company_name: str = Form(..., description='Name of Company'),
         logger.exception('Unhandled error: ' + str(e))
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, 'An unexpected error occurred.')
     return f'Successfully added {len(devices_added)} devices to {company_name}.'
+
+@logger.catch
+@app.post("/sync_device")
+def sync_device(snow_data: SnowData):
+
+        # Do not use unless there are no duplicate copies of used_for groups, duplicate category groups inside a used for group, or a used_for group inside of a used for group
+        # In that case you must manually clean up the structure before running this endpoint
+        # This endpoints assumes a group structure is something like this where there are several used for groups and category groups:
+        # ----- Managed Infrastructure
+        #----------Used For
+        #---------------Category
+        #--------------------Device
+        #--------------------Device
+        #---------------Category
+        #--------------------Device
+        #----------Used For
+        #---------------Category
+        #--------------------Device
+        try:
+            auth = BasicToken(snow_data.prtg_api_key)
+            client = PrtgClient(f'https://{snow_data.prtg_url}', auth, requests_verify=True)
+            prtg_controller = PrtgController(client)
+        except Exception:
+            logger.error(f"Error creating PRTG client")
+            return HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Error creating PRTG client")
+        
+        try:
+            # Get parent group of device for company brackets
+            device = client.get_device(snow_data.objid)
+
+            parent_group = client.get_group(device['parentid'])
+            company_brackets = parent_group["name"].split(" ")[0]
+
+            # Get the grandparent group
+            grandparent_group = client.get_group(parent_group['parentid'])
+        
+            # Check if the used_for group exists
+            grandparent_used_for = company_brackets + " " + snow_data.used_for
+            category_group = company_brackets + " " + snow_data.category
+
+            existing_used_for_group = prtg_controller.get_group_existence(grandparent_group["parentid"], grandparent_used_for)
+            
+            # Initializing Group, Device, and Properties dataclasses
+            if existing_used_for_group == []:
+                logger.info(f"Creating grandparent group instead")
+                # Move the device to the category group in the used_for group and set it's properties
+                new_grandparent_group = client.add_group(grandparent_used_for, grandparent_group['parentid'])
+                new_category_group = client.add_group(category_group, new_grandparent_group['objid'])
+                prtg_controller.moveobj_setproperties_deleteobj(snow_data, new_category_group['objid'], device, parent_group)
+
+                return_msg = {
+                    "new_groups" : [new_grandparent_group['name'], new_category_group['name']],
+                    "device_moved" : new_category_group['name'],
+                }
+
+                return return_msg
+            # Catch duplicate groups case
+            existing_category_group = prtg_controller.get_group_existence(existing_used_for_group['objid'], category_group)   
+
+            if existing_category_group == []:
+                logger.info(f"Creating category group instead")
+                # Move the device to the category group and set it's properties
+                new_category_group = client.add_group(category_group, existing_used_for_group['objid'])
+                prtg_controller.moveobj_setproperties_deleteobj(snow_data, new_category_group['objid'], device, parent_group)
+
+                return_msg = {
+                    "new_groups" : [new_category_group['name']],
+                    "device_moved" : new_category_group['name'],
+                }
+
+                return return_msg
+
+            logger.info(f"Moving device to existing category group")
+            prtg_controller.moveobj_setproperties_deleteobj(snow_data, existing_category_group['objid'], device, parent_group)
+
+            return_msg = {
+                "parent_name" : existing_category_group['name'],
+            }
+
+            return return_msg
+ 
+        except HTTPException as e:
+            # Reraise already handled exception
+            logger.error(e)
+            raise e
+        except Exception as e:
+            # Catch all other unhandled exceptions
+            logger.exception('Unhandled error: ' + str(e))
+            raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, 'An unexpected error occurred.')
