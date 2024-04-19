@@ -298,9 +298,7 @@ def sync_all_sites(company_name: str = Form(..., description='Name of Company'),
 @logger.catch
 @app.post("/sync_device")
 def sync_device(snow_data: SnowData):
-
-        # Do not use unless there are no duplicate copies of used_for groups, duplicate category groups inside a used for group, or a used_for group inside of a used for group
-        # In that case you must manually clean up the structure before running this endpoint
+        logger.info(f'Syncing device {snow_data.hostname}...')
         # This endpoints assumes a group structure is something like this where there are several used for groups and category groups:
         # ----- Managed Infrastructure
         #----------Used For
@@ -322,6 +320,10 @@ def sync_device(snow_data: SnowData):
         
         try:
             # Get parent group of device for company brackets
+
+            prtg_controller.validate_used_for_group(snow_data.used_for)
+            prtg_controller.validate_category_group(snow_data.category)
+
             device = client.get_device(snow_data.objid)
 
             parent_group = client.get_group(device['parentid'])

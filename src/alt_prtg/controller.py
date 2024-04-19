@@ -157,29 +157,63 @@ class PrtgController:
 
     def moveobj_setproperties_deleteobj(self, snow_data : SnowData, objid : Union[str, int], device : Dict, parent_group : Dict):
             
-            name_update = snow_data.manufactuer_model + " " + snow_data.manufacturer_number + " (" + str(snow_data.ip) + ")"
-            
-            self.client.move_object(snow_data.objid, objid) 
+        name_update = snow_data.manufactuer_model + " " + snow_data.manufacturer_number + " (" + str(snow_data.ip) + ")"
+        
+        self.client.move_object(snow_data.objid, objid) 
 
-            snow_properties = Properties(name_update, snow_data.hostname, snow_data.location)
-            
-            self.set_properties(snow_data.objid, snow_properties, device)
+        snow_properties = Properties(name_update, snow_data.hostname, snow_data.location)
+        
+        self.set_properties(snow_data.objid, snow_properties, device)
 
-            if self.client.get_devices_by_group_id(parent_group['objid']) == []:
-                self.client.delete_object(parent_group['objid'])
-            if self.client.get_devices_by_group_id(parent_group['parentid']) == []:
-                self.client.delete_object(parent_group['parentid'])
+        if self.client.get_devices_by_group_id(parent_group['objid']) == []:
+            self.client.delete_object(parent_group['objid'])
+        if self.client.get_devices_by_group_id(parent_group['parentid']) == []:
+            self.client.delete_object(parent_group['parentid'])
 
     def get_group_existence(self, objid: Union[str,int], group_name: str):
 
         groups = self.client.get_groups_by_group_id(objid)
 
+        self.check_for_duplicates(objid, group_name)
+
         for group in groups:
             if group['name'] == group_name:
                 return group
-            
+                
         return []
+    
+    def check_for_duplicates(self, objid : Union[str, int], group_name : str):
+        
+        groups = self.client.get_groups_by_group_id(objid)
+        counter = 0
+        for group in groups:
+            if group['name'] == group_name:
+                counter += 1
 
+        if counter == 1:
+            return None
+        elif counter == 0:
+            return []
+        elif counter > 1:
+            raise ValueError(f'More than one group found with name {group_name}. Clean up PRTG groups.')
+
+    def validate_used_for_group(self, used_for_group : str):
+
+        list_of_used_for_groups = ['DR', 'Demonstration', 'Development', 'Production', 'Staging', 'Test', 'Q/A']
+
+        if used_for_group in list_of_used_for_groups:
+            return None
+        else:
+            raise ValueError(f'Invalid used_for group. Please use one of the following: {list_of_used_for_groups}')
+        
+    def validate_category_group(self, category_group : str):
+
+        list_of_category_groups = ['Backup', 'Hardware', 'Network', 'Server', 'Storage', 'Virtualization']
+
+        if category_group in list_of_category_groups:
+            return None
+        else:
+            raise ValueError(f'Invalid category group. Please use one of the following: {list_of_category_groups}')
 
         
         
