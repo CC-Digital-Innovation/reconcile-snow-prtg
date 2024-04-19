@@ -10,7 +10,7 @@ class SnowController:
 
     def get_company_by_name(self, name: str) -> Company:
         company = self.client.get_company(name)
-        return Company(company['sys_id'], company['name'].strip(), company['u_abbreviated_name'])
+        return Company(company['sys_id'], company['name'].strip(), company['u_abbreviated_name'], company['u_prtg_device_name_format'])
 
     def _get_location(self, location: Dict):
         try:
