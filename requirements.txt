@@ -16,7 +16,7 @@ lazy-object-proxy==1.5.2
 loguru==0.7.0
 mccabe==0.6.1
 oauthlib==3.2.2
-pydantic==1.8.2
+pydantic==1.10.13
 pylint==2.7.2
 pyprtg-api==0.0.16
 pysnow==0.7.17
