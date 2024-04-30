@@ -1,5 +1,5 @@
 from collections import defaultdict
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from functools import reduce, partial
 from operator import getitem
 from string import Formatter
