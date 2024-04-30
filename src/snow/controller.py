@@ -10,7 +10,14 @@ class SnowController:
 
     def get_company_by_name(self, name: str) -> Company:
         company = self.client.get_company(name)
-        return Company(company['sys_id'], company['name'].strip(), company['u_abbreviated_name'])
+
+        # map SNOW choice list names to formats
+        format_map = {
+            'ip only': '{manufacturer.name} {model_number} ({ip_address})',
+            'hostname + ip': '{manufacturer.name} {model_number} {host_name} ({ip_address})'
+        }
+
+        return Company(company['sys_id'], company['name'].strip(), company['u_abbreviated_name'], format_map.get(company['u_prtg_format'].lower(), None))
 
     def _get_location(self, location: Dict):
         try:
@@ -36,6 +43,8 @@ class SnowController:
         except AddressValueError:
             ip_address = None
 
+        hostname = ci['u_host_name']
+
         try:
             response = self.client.get_record(ci['manufacturer']['link'])
         except TypeError:
@@ -55,7 +64,7 @@ class SnowController:
             prtg_id = None
 
         cc_device = True if ci['u_prtg_instrumentation'] == 'true' else False
-        return ConfigItem(ci['sys_id'], ci['name'], ip_address, manufacturer, ci['model_number'], stage, category, sys_class, link, prtg_id, cc_device)
+        return ConfigItem(ci['sys_id'], ci['name'], ip_address, manufacturer, ci['model_number'], stage, category, sys_class, link, prtg_id, cc_device, hostname)
 
     def get_config_items(self, company: Company, location: Location) -> List[ConfigItem]:
         cis = self.client.get_cis_by_site(company.name, location.name)
