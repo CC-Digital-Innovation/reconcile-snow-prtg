@@ -21,3 +21,4 @@ class ConfigItem:
     link: str
     prtg_id: Union[int, None]
     is_internal: bool
+    host_name: str | None = None

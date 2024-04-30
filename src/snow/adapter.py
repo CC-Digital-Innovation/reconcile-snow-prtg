@@ -2,6 +2,7 @@ from collections import defaultdict
 from dataclasses import dataclass, asdict
 from functools import reduce, partial
 from operator import getitem
+from string import Formatter
 from typing import List, Optional
 
 from prtg import Icon
@@ -14,18 +15,26 @@ class PrtgDeviceAdapter(Device):
     def __init__(self, ci: ConfigItem, name_format: Optional[str] = None):
         self.ci = ci
 
-        if ci.manufacturer is None:
-            raise ValueError(f'Configuration item "{ci.name}" is missing required attribute Manufacturer.')
-
-        if not ci.model_number:
-            raise ValueError(f'Configuration item "{ci.name}" is missing required attribute Model number.')
-
-        if ci.ip_address is None:
-            raise ValueError(f'Configuration item "{ci.name}" is missing required attribute IP address.')
-
         if name_format:
-            name = name_format.format(**asdict(ci))
+            # check for required attributes
+            format_map = {}
+            for _, key_name, _, _ in Formatter().parse(name_format):
+                if key_name:
+                    # reduce nested values
+                    value = reduce(getattr, key_name.split('.'), ci)
+                    if value is None or value == '':
+                        raise ValueError(f'Configuration item "{ci.name}" is missing required attribute "{key_name}".')
+                    # rebuild key name to use 
+                    format_map[key_name] = value
+            name = name_format % format_map
         else:
+            if ci.manufacturer is None:
+                raise ValueError(f'Configuration item "{ci.name}" is missing required attribute Manufacturer.')
+            if not ci.model_number:
+                raise ValueError(f'Configuration item "{ci.name}" is missing required attribute Model number.')
+            if ci.ip_address is None:
+                raise ValueError(f'Configuration item "{ci.name}" is missing required attribute IP address.')
+            
             name = '{} {} ({})'.format(ci.manufacturer.name, ci.model_number, ci.ip_address)
 
         if not ci.stage:
