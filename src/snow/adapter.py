@@ -17,25 +17,18 @@ class PrtgDeviceAdapter(Device):
 
         if name_format:
             # check for required attributes
-            format_map = {}
             for _, key_name, _, _ in Formatter().parse(name_format):
-                if key_name:
-                    # reduce nested values
-                    value = reduce(getattr, key_name.split('.'), ci)
-                    if value is None or value == '':
-                        raise ValueError(f'Configuration item "{ci.name}" is missing required attribute "{key_name}".')
-                    # rebuild key name to use 
-                    format_map[key_name] = value
-            name = name_format % format_map
+                if key_name is None:
+                    continue
+                # reduce to get value of nested attributes
+                value = reduce(getattr, key_name.split('.'), ci)
+                # raise if value is missing
+                if value is None or value == '':
+                    raise ValueError(f'Configuration item "{ci.name}" is missing required attribute "{key_name}".')
+            name = name_format.format_map(ci.__dict__)
         else:
-            if ci.manufacturer is None:
-                raise ValueError(f'Configuration item "{ci.name}" is missing required attribute Manufacturer.')
-            if not ci.model_number:
-                raise ValueError(f'Configuration item "{ci.name}" is missing required attribute Model number.')
-            if ci.ip_address is None:
-                raise ValueError(f'Configuration item "{ci.name}" is missing required attribute IP address.')
-            
-            name = '{} {} ({})'.format(ci.manufacturer.name, ci.model_number, ci.ip_address)
+            # default to CI name
+            name = ci.name
 
         if not ci.stage:
             raise ValueError(f'Configuration item "{ci.name}" is missing required attribute Used for.')
