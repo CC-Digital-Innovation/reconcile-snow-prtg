@@ -1,12 +1,12 @@
 import json
 import logging.handlers
+import html
 import os
 import secrets
 import sys
 from dataclasses import asdict
 from pathlib import PurePath
 from tempfile import SpooledTemporaryFile
-from typing import Union
 
 import dotenv
 from fastapi import Depends, FastAPI, Form, HTTPException, status
@@ -97,11 +97,11 @@ def authorize(key: str = Depends(api_key)):
 
 # dependency injection for all endpoints that accept a custom prtg instance
 def custom_prtg_parameters(
-        prtg_url: Union[str, None] = Form(None, description='Set a different PRTG instance. Must include HTTP/S protocol, e.g. https://prtg.instance.com.'),
-        prtg_token: Union[SecretStr, None] = Form(None, description='API token to authenticate with a different PRTG instance (username not necessary).'),
-        prtg_username: Union[SecretStr, None] = Form(None, description='Username to authenticate with a different PRTG instance (password or passhash needed)'),
-        prtg_password: Union[SecretStr, None] = Form(None, description='Password to authenticate with a different PRTG instance (username needed)'),
-        prtg_passhash: Union[SecretStr, None] = Form(None, description='Passhash to authenticate with a different PRTG instance (username needed)'),
+        prtg_url: str | None = Form(None, description='Set a different PRTG instance. Must include HTTP/S protocol, e.g. https://prtg.instance.com.'),
+        prtg_token: SecretStr | None = Form(None, description='API token to authenticate with a different PRTG instance (username not necessary).'),
+        prtg_username: SecretStr | None = Form(None, description='Username to authenticate with a different PRTG instance (password or passhash needed)'),
+        prtg_password: SecretStr | None = Form(None, description='Password to authenticate with a different PRTG instance (username needed)'),
+        prtg_passhash: SecretStr | None = Form(None, description='Passhash to authenticate with a different PRTG instance (username needed)'),
         prtg_verify: bool = Form(True, description='Validate server certificate if set to true (default).')):
     # Check if custom PRTG instance
     if prtg_url:
@@ -133,10 +133,13 @@ def sync(company_name: str = Form(..., description='Name of Company'), # Ellipsi
         site_name: str = Form(..., description='Name of Site (Location)'),
         root_id: int = Form(..., description='ID of root group (not to be confused with Probe Device)'),
         root_is_site: bool = Form(False, description='Set to true if root group is the site'),
-        email: Union[str, None] = Form(None, description='Sends result to email address.'),
+        email: str | None = Form(None, description='Sends result to email address.'),
         prtg_client: PrtgClient = Depends(custom_prtg_parameters)):
     logger.info(f'Syncing for {company_name} at {site_name}...')
     logger.debug(f'Company name: {company_name}, Site name: {site_name}, Root ID: {root_id}, Is Root Site: {root_is_site}')
+    # clean str inputs
+    company_name = html.escape(company_name)
+    site_name = html.escape(site_name)
     try:
         # Get expected tree
         try:
@@ -216,10 +219,12 @@ def sync(company_name: str = Form(..., description='Name of Company'), # Ellipsi
 @app.post('/syncAllSites', dependencies=[Depends(authorize)])
 def sync_all_sites(company_name: str = Form(..., description='Name of Company'), # Ellipsis means it is required
         root_id: int = Form(..., description='ID of root group (not to be confused with Probe Device)'),
-        email: Union[str, None] = Form(None, description='Sends result to email address.'),
+        email: str | None = Form(None, description='Sends result to email address.'),
         prtg_client: PrtgClient = Depends(custom_prtg_parameters)):
     logger.info(f'Syncing all sites for {company_name}...')
     logger.debug(f'Company name: {company_name}, Root ID: {root_id}')
+    # clean str input
+    company_name = html.escape(company_name)
     try:
         try:
             company = snow_controller.get_company_by_name(company_name)

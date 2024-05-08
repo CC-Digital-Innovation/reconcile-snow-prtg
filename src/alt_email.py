@@ -1,4 +1,4 @@
-from typing import BinaryIO, List, Tuple, Union
+from typing import IO
 
 import requests
 from requests.auth import AuthBase
@@ -21,12 +21,12 @@ class EmailApi:
     def email(self,
               to: str,
               subject: str,
-              cc: Union[str, None] = None,
-              bcc: Union[str, None] = None,
-              body: Union[str, None] = None,
-              report_name: Union[str, None] = None,
-              table_title: Union[List[str], None] = None,
-              files: Union[List[Tuple[str, BinaryIO]], None] = None):
+              cc: str | None = None,
+              bcc: str | None = None,
+              body: str | None = None,
+              report_name: str | None = None,
+              table_title: list[str] | None = None,
+              files: list[tuple[str, IO[bytes]]] | None = None):
         data = {
             'subject': subject,
             'to': to,

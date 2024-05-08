@@ -1,22 +1,14 @@
-from dataclasses import dataclass
-from typing import List, Union
+from dataclasses import dataclass, field
 
 from .common import Status
 
 
-@dataclass
+@dataclass(slots=True)
 class Group:
-    id: Union[int, None]
+    id: int | None = field(compare=False)
     name: str
-    priority: int
-    tags: List[str]
-    location: str
-    status: Status
-    is_active: bool
-
-    # Allow comparison for adapters
-    # Only compares name because SNOW does not store group objects
-    def __eq__(self, other):
-        if isinstance(other, self.__class__):
-            return (self.name) == (other.name)
-        return NotImplemented
+    priority: int = field(compare=False)
+    tags: list[str] = field(compare=False)
+    location: str = field(compare=False)
+    status: Status = field(compare=False)
+    is_active: bool = field(compare=False)

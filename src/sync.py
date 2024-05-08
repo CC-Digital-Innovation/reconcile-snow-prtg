@@ -10,9 +10,18 @@ class RootMismatchException(Exception):
     "Raise when root does not match"
 
 def _sync_groups(expected: Node, current: Node):
-    # Update expected tree groups with ID if they exist since
-    # SNOW does not store a PRTG group object
+    """ServiceNow does not store a PRTG group object so they are instantiated 
+    with no ID. This function compares existing groups and updates the expected 
+    tree with populated IDs.
 
+    Args:
+        expected (Node): expected tree node as viewed from ServiceNow
+        current (Node): current tree node as viewed from PRTG
+
+    Raises:
+        RootMismatchException: when root name and/or ID input does not match 
+        the expected root
+    """
     # iterator to get all expected nodes, filtering out device nodes
     expected_groups = LevelOrderIter(expected, filter_=lambda n: not isinstance(n.prtg_obj, Device))
     # iterator to get all current nodes, filtering out device nodes

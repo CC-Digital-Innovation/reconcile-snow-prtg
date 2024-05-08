@@ -1,5 +1,3 @@
-from typing import Dict, List, Union
-
 from prtg import ApiClient, Icon
 from prtg.exception import ObjectNotFound
 
@@ -10,17 +8,17 @@ class PrtgController:
     def __init__(self, client: ApiClient):
         self.client = client
 
-    def get_probe(self, probe_id: Union[int, str]) -> Group:
+    def get_probe(self, probe_id: int | str) -> Group:
         """Probes will be treated the same as groups"""
         probe = self.client.get_probe(probe_id)
         return self._get_group(probe)
 
-    def _get_group(self, group: Dict) -> Group:
+    def _get_group(self, group: dict) -> Group:
         """Helper function to create a Group from a dict payload returned by the API"""
         tags = group['tags'].split()
         return Group(group['objid'], group['name'], group['priority'], tags, group['location'], Status(group['status'].lower()), group['active'])
 
-    def get_group(self, group_id: Union[int, str]) -> Group:
+    def get_group(self, group_id: int | str) -> Group:
         group = self.client.get_group(group_id)
         return self._get_group(group)
 
@@ -50,7 +48,7 @@ class PrtgController:
             self.client.set_location(group_id, group.location)
         return Group(group_id, group.name, group.priority, group.tags, group.location, group.status, group.is_active)
 
-    def _get_device(self, device: Dict) -> Device:
+    def _get_device(self, device: dict) -> Device:
         """Helper function to create a Device from a dict payload returned by the API"""
         tags = device['tags'].split()
         try:
@@ -87,7 +85,7 @@ class PrtgController:
         return Device(device_id, device.name, device.host, device.service_url, device.priority, device.tags, device.location, device.icon, device.status,
                       device.is_active)
 
-    def get_devices_in_group(self, parent: Group) -> List[Device]:
+    def get_devices_in_group(self, parent: Group) -> list[Device]:
         if parent.id is None:
             raise ValueError(f'Group "{parent.name}" is missing required attribute id. This group may not be created yet.')
         devices = self.client.get_devices_by_group_id(parent.id)
