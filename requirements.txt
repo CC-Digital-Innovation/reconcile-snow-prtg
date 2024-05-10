@@ -14,7 +14,7 @@ loguru==0.7.2
 oauthlib==3.2.2
 pydantic==2.7.0
 pydantic_core==2.18.1
-pyprtg-api==0.0.17
+pyprtg-api==0.0.19
 pysnow==0.7.17
 python-dotenv==1.0.1
 python-magic==0.4.27
