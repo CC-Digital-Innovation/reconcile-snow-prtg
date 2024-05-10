@@ -1,17 +1,17 @@
 from dataclasses import dataclass
-from typing import Union
 
 
-@dataclass
+@dataclass(slots=True)
 class Country:
     id: str
     name: str
 
-@dataclass
+
+@dataclass(slots=True)
 class Location:
     id: str
     name: str
-    country: Union[Country, None]
+    country: Country | None
     street: str
     city: str
     state: str

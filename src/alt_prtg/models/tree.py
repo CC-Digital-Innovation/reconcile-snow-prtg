@@ -1,5 +1,3 @@
-from typing import Union
-
 from anytree import NodeMixin
 from anytree.node import util
 
@@ -7,8 +5,8 @@ from . import Device, Group
 
 
 class Node(NodeMixin):
-    """Represents an immutable PRTG tree structure of a company/location."""
-    def __init__(self, prtg_obj: Union[Device, Group], parent: Union[NodeMixin, None] = None):
+    """Represents a PRTG tree structure of a company/location."""
+    def __init__(self, prtg_obj: Device | Group, parent: NodeMixin | None = None):
         self.prtg_obj = prtg_obj
         self.parent = parent
 
