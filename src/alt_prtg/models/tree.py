@@ -11,7 +11,7 @@ class Node(NodeMixin):
         self.parent = parent
 
     def __eq__(self, other):
-        if other.__class__ is self.__class__:
+        if isinstance(other, Node):
             return (self.prtg_obj, self.parent) == (other.prtg_obj, other.parent)
 
     # copied from anytree.Node and revised to get PRTG object's name
