@@ -191,3 +191,22 @@ class ApiClient:
         ci_table = self.client.resource(api_path='/table/cmdb_ci')
         response = ci_table.update(query={'sys_id': sys_id}, payload=update)
         return response['u_prtg_id'] == value
+
+    def get_cis_count(self, company_name, site_name):
+        """Get a count of all PRTG monitored configuration items from a company
+        site."""
+        ci_aggregate = self.client.resource('/stats/cmdb_ci')
+        ci_aggregate.parameters.add_custom({'sysparm_count': True})
+        query = (
+            pysnow.QueryBuilder()
+            .field('company.name').equals(company_name)
+            .AND().field('name').order_ascending()
+            .AND().field('install_status').equals('1')      # Installed
+            .OR().field('install_status').equals('101')     # Active
+            .OR().field('install_status').equals('107')     # Duplicate installed
+            .AND().field('location.name').equals(site_name)
+            .AND().field('u_cc_type').equals('root')
+            .OR().field('u_cc_type').is_empty()
+        )
+        response = ci_aggregate.get(query=query)
+        return int(response.one()['stats']['count'])
