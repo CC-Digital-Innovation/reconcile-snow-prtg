@@ -16,8 +16,8 @@ class PrtgController:
 
     def _get_group(self, group: dict) -> Group:
         """Helper function to create a Group from a dict payload returned by the API"""
-        tags = group['tags'].split()
-        return Group(group['objid'], group['name'], group['priority'], tags, group['location'], Status(group['status'].lower()), group['active'])
+        tags = set(group['tags'].split())
+        return Group(group['objid'], group['name'], int(group['priority']), tags, group['location'], Status(group['status'].lower()), group['active'])
 
     def get_group(self, group_id: int | str) -> Group:
         """Get group by id
@@ -74,20 +74,20 @@ class PrtgController:
             self.client.pause_object(group_id)
         self.client.set_priority(group_id, group.priority)
         if group.tags:
-            self.client.set_tags(group_id, group.tags)
+            self.client.set_tags(group_id, list(group.tags))
         if group.location:
             self.client.set_location(group_id, group.location)
         return Group(group_id, group.name, group.priority, group.tags, group.location, group.status, group.is_active)
 
     def _get_device(self, device: dict) -> Device:
         """Helper function to create a Device from a dict payload returned by the API"""
-        tags = device['tags'].split()
+        tags = set(device['tags'].split())
         try:
             icon = Icon(device['icon'])
         except ValueError:
             icon = None
         service_url = self.client.get_service_url(device['objid'])
-        return Device(device['objid'], device['name'], device['host'], service_url, device['priority'], tags, device['location'], icon,
+        return Device(device['objid'], device['name'], device['host'], service_url, int(device['priority']), tags, device['location'], icon,
                       Status(device['status'].lower()), device['active'])
 
     def get_device(self, device_id: int | str) -> Device:
@@ -130,7 +130,7 @@ class PrtgController:
             self.client.pause_object(device_id)
         self.client.set_priority(device_id, device.priority)
         if device.tags:
-            self.client.set_tags(device_id, device.tags)
+            self.client.set_tags(device_id, list(device.tags))
         if device.location:
             self.client.set_location(device_id, device.location)
         return Device(device_id, device.name, device.host, device.service_url, device.priority, device.tags, device.location, device.icon, device.status,
@@ -174,7 +174,7 @@ class PrtgController:
         if device.priority != current_device.priority:
             self.client.set_priority(device.id, device.priority)
         if device.tags != current_device.tags:
-            self.client.set_tags(device.id, device.tags)
+            self.client.set_tags(device.id, list(device.tags))
         if device.icon and device.icon != current_device.icon:
             self.client.set_icon(device.id, device.icon)
 

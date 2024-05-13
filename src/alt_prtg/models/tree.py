@@ -10,10 +10,6 @@ class Node(NodeMixin):
         self.prtg_obj = prtg_obj
         self.parent = parent
 
-    def __eq__(self, other):
-        if isinstance(other, Node):
-            return (self.prtg_obj, self.parent) == (other.prtg_obj, other.parent)
-
     # copied from anytree.Node and revised to get PRTG object's name
     def __repr__(self):
         args = ["%r" % self.separator.join([""] + [node.prtg_obj.name for node in self.path])]
