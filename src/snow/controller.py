@@ -63,8 +63,8 @@ class SnowController:
             prtg_id = None
 
         cc_device = True if ci['u_prtg_instrumentation'] == 'true' else False
-        return ConfigItem(ci['sys_id'], ci['name'], ip_address, manufacturer, 
-                          ci['model_number'], stage, category, sys_class, link, 
+        return ConfigItem(ci['sys_id'], ci['name'], ip_address, manufacturer,
+                          ci['model_number'], stage, category, sys_class, link,
                           prtg_id, cc_device, hostname)
 
     def get_config_items(self, company: Company, location: Location) -> list[ConfigItem]:

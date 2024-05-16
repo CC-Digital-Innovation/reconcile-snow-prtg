@@ -63,7 +63,12 @@ class PrtgGroupAdapter(Group):
 
 
 # Tree creation is more complex so avoided a class object
-def get_prtg_tree_adapter(company: Company, location: Location, config_items: list[ConfigItem], controller: SnowController, root_is_site = False, min_device: int = 0) -> Node:
+def get_prtg_tree_adapter(company: Company,
+                          location: Location,
+                          config_items: list[ConfigItem],
+                          controller: SnowController,
+                          root_is_site = False,
+                          min_device: int = 0) -> Node:
     # Default company's abbreviated name if it exists
     company_name = company.abbreviated_name if company.abbreviated_name else company.name
     # Group format for all groups. Some tools like logging requires a particular format for groups in PRTG.

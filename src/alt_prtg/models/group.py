@@ -16,8 +16,8 @@ class Group:
     def __eq__(self, other: object) -> bool:
         """Custom __eq__ with isinstance() to work with subclasses"""
         if isinstance(other, Group):
-            return ((self.id, self.name, self.priority, self.tags, 
-                     self.location, self.status, self.is_active) == 
-                    (other.id, other.name, other.priority, other.tags, 
+            return ((self.id, self.name, self.priority, self.tags,
+                     self.location, self.status, self.is_active) ==
+                    (other.id, other.name, other.priority, other.tags,
                      other.location, other.status, other.is_active))
         return NotImplemented

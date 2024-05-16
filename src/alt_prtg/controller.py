@@ -219,87 +219,34 @@ class PrtgController:
         if device.icon and device.icon != current_device.icon:
             self.client.set_icon(device.id, device.icon)
 
-    def get_path_group_to_object(self, group: Group, object: Device | Group):
-        """Get a node tree from group to specified object
-
-        Args:
-            group (Group): group, ancestor of object
-            object (Device | Group): object, descendant of group
-
-        Raises:
-            ValueError: when group or object ID is missing
-
-        Returns:
-            Node: tree from group to object
-        """
-        if group.id is None:
-            raise ValueError(f'Cannot get path from group, group ID is missing for group {group.name}')
-        if object.id is None:
-            raise ValueError(f'Cannot get path from object, object ID is missing for object {object.name}')
-
-        # get object details to obtain parent ID
-        if isinstance(object, Device):
-            object_dict = self.client.get_device(object.id)
-        elif isinstance(object, Group):
-            object_dict = self.client.get_group(object.id)
-        else:
-            raise NotImplementedError(f'Object type {type(object)} is not supported.')
-        
-        intermediate_nodes = [] # stack of nodes between group and object to get
-        ancestor_id = object_dict['parentid']
-        # loop through ancestors of object until group
-        while True:
-            if ancestor_id == group.id:
-                break
-            if ancestor_id < 0:
-                raise ValueError('Could not find group on path.')
-            # get group details to obtain parent ID
-            try:
-                intermediate_group_dict = self.client.get_group(ancestor_id)
-            except ObjectNotFound:
-                intermediate_group_dict = self.client.get_probe(ancestor_id)  # Probe group
-            intermediate_group = self._get_group(intermediate_group_dict)
-            intermediate_nodes.append(intermediate_group)
-            ancestor_id = intermediate_group_dict['parentid']  # update current parent ID
-        
-        # build path
-        root = Node(group)
-        current_parent_node = root
-        while intermediate_nodes:
-            current_child = intermediate_nodes.pop()  # pop from stack as order is in reverse
-            current_child_node = Node(current_child, current_parent_node)
-            current_parent_node = current_child_node
-        Node(object, current_parent_node)  # last parent node is object's parent
-        return root
-
-    def move_object(self, object: Device | Group, parent: Group):
+    def move_object(self, obj: Device | Group, parent: Group):
         """Move an object
 
         Args:
-            object (Device | Group): object to move
+            obj (Device | Group): object to move
             parent (Group): parent group where object is moved
 
         Raises:
             ValueError: when object or parent group ID is missing
         """
-        if object.id is None:
-            raise ValueError(f'Cannot move object, object ID is missing for object {object.name}')
+        if obj.id is None:
+            raise ValueError(f'Cannot move object, object ID is missing for object {obj.name}')
         if parent.id is None:
             raise ValueError(f'Cannot move to group, group ID is missing for group {parent.name}')
-        self.client.move_object(object.id, parent.id)
+        self.client.move_object(obj.id, parent.id)
 
-    def delete_object(self, object: Device | Group):
+    def delete_object(self, obj: Device | Group):
         """Delete an object
 
         Args:
-            object (Device | Group): object to be deleted
+            obj (Device | Group): object to be deleted
 
         Raises:
             ValueError: object is missing ID field
         """
-        if object.id is None:
-            raise ValueError(f'Cannot delete object, object ID is missing for object {object.name}')
-        self.client.delete_object(object.id)
+        if obj.id is None:
+            raise ValueError(f'Cannot delete object, object ID is missing for object {obj.name}')
+        self.client.delete_object(obj.id)
 
     def get_tree(self, group: Group) -> Node:
         """Create a tree model of a group in PRTG. There exists a get_sensortree() endpoint

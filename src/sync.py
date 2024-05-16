@@ -152,7 +152,7 @@ def sync_device(expected: Node, current_controller: PrtgController, expected_con
             existing_group = current_controller.get_group_by_name(node.prtg_obj.name)
         except ValueError:
             groups_to_create.append(node.prtg_obj)
-            # break early because subsequent groups may match incorrect sub groups, 
+            # break early because subsequent groups may match incorrect sub groups,
             # i.e., 'Prod -> Server' could match with 'DR -> Server'
             break
     # add the rest of missing groups, if any
