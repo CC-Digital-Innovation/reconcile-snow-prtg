@@ -1,5 +1,6 @@
-from anytree import LevelOrderIter
+import anytree
 from loguru import logger
+from prtg.exception import ObjectNotFound
 
 from alt_prtg import PrtgController
 from alt_prtg.models import Device, Node
@@ -23,9 +24,9 @@ def _sync_groups(expected: Node, current: Node):
         the expected root
     """
     # iterator to get all expected nodes, filtering out device nodes
-    expected_groups = LevelOrderIter(expected, filter_=lambda n: not isinstance(n.prtg_obj, Device))
+    expected_groups = anytree.LevelOrderIter(expected, filter_=lambda n: not isinstance(n.prtg_obj, Device))
     # iterator to get all current nodes, filtering out device nodes
-    current_groups = LevelOrderIter(current, filter_=lambda n: not isinstance(n.prtg_obj, Device))
+    current_groups = anytree.LevelOrderIter(current, filter_=lambda n: not isinstance(n.prtg_obj, Device))
 
     # expected root group is short and could match multiple groups
     # grab and compare root first
@@ -48,9 +49,19 @@ def _sync_groups(expected: Node, current: Node):
         if group_name is not None:
             node.prtg_obj.id = current_groups_map.pop(group_name).prtg_obj.id
 
-def sync_trees(expected: Node, current: Node, expected_controller: SnowController, current_controller: PrtgController):
+def sync_trees(expected: Node, current: Node, expected_controller: SnowController, current_controller: PrtgController) -> list[Device]:
     """Synchronize a given tree: (1) add missing devices, (2) remove deactivated devices (not yet unsupported),
-    and (3) update device with mismatched details (not yet unsupported)"""
+    and (3) update device with mismatched details (not yet unsupported)
+
+    Args:
+        expected (Node): tree as expected from ServiceNow
+        current (Node): tree as seen from PRTG
+        expected_controller (SnowController): controller to update SNOW, only used to update PRTG ID of device
+        current_controller (PrtgController): controller to update PRTG structure
+
+    Returns:
+        list[Device]: list of new devices added
+    """
 
     # Sync group ids
     _sync_groups(expected, current)
@@ -59,8 +70,8 @@ def sync_trees(expected: Node, current: Node, expected_controller: SnowControlle
     # device is missing if ID is missing
     device_to_add = []
     # map {device_id: node} for quicker access
-    current_devices = {node.prtg_obj.id: node for node in LevelOrderIter(current, filter_=lambda n: isinstance(n.prtg_obj, Device))}
-    for node in LevelOrderIter(expected, filter_=lambda n: isinstance(n.prtg_obj, Device)):
+    current_devices = {node.prtg_obj.id: node for node in anytree.LevelOrderIter(current, filter_=lambda n: isinstance(n.prtg_obj, Device))}
+    for node in anytree.LevelOrderIter(expected, filter_=lambda n: isinstance(n.prtg_obj, Device)):
         # add if missing PRTG ID field
         # or if ID exists but not device is found
         if node.prtg_obj.id is None or node.prtg_obj.id not in current_devices:
@@ -96,3 +107,85 @@ def sync_trees(expected: Node, current: Node, expected_controller: SnowControlle
         device_node.prtg_obj.ci.prtg_id = new_device.id
         expected_controller.update_config_item(device_node.prtg_obj.ci)
     return [node.prtg_obj for node in device_to_add]
+
+
+def sync_device(expected: Node, current_controller: PrtgController, expected_controller: SnowController) -> Device:
+    """Synchronize a given device: (1) create groups, if necessary, (2) update device details, (3) move device if necessary, 
+    and (4) remove last group if empty. If device does not exist, simply create device and any intermediate groups if necessary.
+
+    Args:
+        expected (Node): tree representing path to device and its updated details
+        current_controller (PrtgController): controller to interact with platform to sync
+        expected_controller (SnowController): controller to update device ID field, only needed if not already created
+
+    Raises:
+        ValueError: root group cannot be found
+        ValueError: cannot find device with given ID
+
+    Returns:
+        Device
+    """
+    # get expected device
+    expected_device_node = anytree.search.find(expected, filter_=lambda n: isinstance(n.prtg_obj, Device))
+    expected_device = expected_device_node.prtg_obj
+    
+    # check for device ID match early to avoid creating groups first
+    if expected_device.id is not None:
+        try:
+            _, current_parent = current_controller.get_device(expected_device.id, get_parent=True)  # do not need current device details
+        except ObjectNotFound:
+            raise ValueError(f'Cannot find device {expected_device.ci.name} with ID {expected_device.id}.')
+
+    # iterate through groups (exclude device)
+    expected_node_iter = anytree.LevelOrderIter(expected, filter_=lambda n: not isinstance(n.prtg_obj, Device))
+    
+    # require root node to exist
+    root_node = next(expected_node_iter)
+    root = current_controller.get_group_by_name(root_node.prtg_obj.name)
+    existing_group = root
+
+    # (1) create any intermediate (non-root) groups as necessary
+    groups_to_create = []
+    # find first missing group, if any
+    for node in expected_node_iter:
+        try:
+            existing_group = current_controller.get_group_by_name(node.prtg_obj.name)
+        except ValueError:
+            groups_to_create.append(node.prtg_obj)
+            # break early because subsequent groups may match incorrect sub groups, 
+            # i.e., 'Prod -> Server' could match with 'DR -> Server'
+            break
+    # add the rest of missing groups, if any
+    groups_to_create.extend([node.prtg_obj for node in expected_node_iter])
+    # create intermediate groups, if any
+    # replace existing_group variable for when moving device
+    for group in groups_to_create:
+        logger.info(f'Adding missing, intermediate group {group.name} to {existing_group.name}...')
+        new_group = current_controller.add_group(group, existing_group)
+        existing_group = new_group
+
+    # simply create device if it does not exist
+    if expected_device.id is None:
+        logger.info(f'ID not found for device {expected_device.name}. Creating new device {expected_device.name}...')
+        new_device = current_controller.add_device(expected_device, existing_group)
+        expected_device.ci.prtg_id = new_device.id
+        expected_controller.update_config_item(expected_device.ci)
+        return new_device
+
+    # (2) update device details
+    logger.info(f'Updating {expected_device.name} details...')
+    current_controller.update_device(expected_device)
+
+    # (3) move device if necessary
+    if current_parent.id != existing_group.id:
+        logger.info(f'Device {expected_device.name} is in incorrect group. Moving to {existing_group.name}...')
+        current_controller.move_object(expected_device, existing_group)
+
+        # (4) remove last empty group if empty
+        groups = current_controller.get_groups(current_parent)
+        devices = current_controller.get_devices(current_parent)
+        if not groups and not devices:
+            logger.info(f'Previous group is empty. Deleteing group {current_parent.name}...')
+            current_controller.delete_object(current_parent)
+    # return updated device (new current device)
+    return current_controller.get_device(expected_device.id)

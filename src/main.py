@@ -1,6 +1,6 @@
+import html
 import json
 import logging.handlers
-import html
 import os
 import secrets
 import sys
@@ -19,18 +19,14 @@ from pydantic import SecretStr
 from pysnow.exceptions import MultipleResults, NoResults
 from requests.exceptions import HTTPError
 
+import sync
 from alt_email import EmailApi, EmailHeaderAuth
 from alt_prtg import PrtgController
 from report import get_add_device_model
 from snow import ApiClient as SnowClient
-from snow import SnowController, get_prtg_tree_adapter
+from snow import SnowController
+from snow.adapter import get_prtg_tree_adapter
 from snow.models import CIBody
-
-from sync import sync_trees, RootMismatchException
-
-from datetime import datetime
-from pytz import timezone
-
 
 # load secrets from .env
 # loaded secrets will not overwrite existing environment variables
@@ -135,8 +131,8 @@ desc = f'Defaults to the "{PRTG_BASE_URL.split("://")[1]}" instance. In order to
 app = FastAPI(title='Reconcile Snow & PRTG', description=desc)
 
 @logger.catch
-@app.post('/sync', dependencies=[Depends(authorize)])
-def sync(company_name: str = Form(..., description='Name of Company'), # Ellipsis means it is required
+@app.post('/syncSite', dependencies=[Depends(authorize)])
+def sync_site(company_name: str = Form(..., description='Name of Company'), # Ellipsis means it is required
         site_name: str = Form(..., description='Name of Site (Location)'),
         root_id: int = Form(..., description='ID of root group (not to be confused with Probe Device)'),
         root_is_site: bool = Form(False, description='Set to true if root group is the site'),
@@ -161,7 +157,7 @@ def sync(company_name: str = Form(..., description='Name of Company'), # Ellipsi
         logger.info(f'Location "{site_name}" found in SNOW.')
         config_items = snow_controller.get_config_items(company, location)
         try:
-            expected_tree = get_prtg_tree_adapter(company, location, config_items, root_is_site, MIN_DEVICES)
+            expected_tree = get_prtg_tree_adapter(company, location, config_items, snow_controller, root_is_site, MIN_DEVICES)
         except ValueError as e:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
 
@@ -179,8 +175,8 @@ def sync(company_name: str = Form(..., description='Name of Company'), # Ellipsi
 
         # Sync trees
         try:
-            devices_added = sync_trees(expected_tree, current_tree, snow_controller, prtg_controller)
-        except RootMismatchException as e:
+            devices_added = sync.sync_trees(expected_tree, current_tree, snow_controller, prtg_controller)
+        except sync.RootMismatchException as e:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
 
         # No changes found, return
@@ -257,14 +253,14 @@ def sync_all_sites(company_name: str = Form(..., description='Name of Company'),
         for location in locations:
             config_items = snow_controller.get_config_items(company, location)
             try:
-                expected_tree = get_prtg_tree_adapter(company, location, config_items, False, MIN_DEVICES)
+                expected_tree = get_prtg_tree_adapter(company, location, config_items, snow_controller, False, MIN_DEVICES)
             except ValueError as e:
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
 
             # Sync trees
             try:
-                devices_added.extend(sync_trees(expected_tree, current_tree, snow_controller, prtg_controller))
-            except RootMismatchException as e:
+                devices_added.extend(sync.sync_trees(expected_tree, current_tree, snow_controller, prtg_controller))
+            except sync.RootMismatchException as e:
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
 
         # No changes found, return
@@ -307,57 +303,18 @@ def sync_all_sites(company_name: str = Form(..., description='Name of Company'),
     return f'Successfully added {len(devices_added)} devices to {company_name}.'
 
 @logger.catch
-@app.post("/sync_device")
+@app.post("/syncDevice")
 def sync_device(ci_body: CIBody):
-        auth = BasicToken(ci_body.prtg_api_key)
-        client = PrtgClient(f'https://{ci_body.prtg_url}', auth, requests_verify=True)
-        prtg_controller = PrtgController(client)
-        try:
-            # Get parent group of device for company brackets
-            device = client.get_device(ci_body.ci.id)
-            parent_group = client.get_group(device['parentid'])
-            company_brackets = parent_group["name"].split(" ")[0]
-            logger.debug(company_brackets)
+    auth = BasicToken(ci_body.prtg_api_key)
+    client = PrtgClient(ci_body.prtg_url, auth)
+    prtg_controller = PrtgController(client)
 
-            # Get the grandparent group
-            grandparent_group = client.get_group(parent_group['parentid'])
-        
-            # Check if the used_for group exists
-            grandparent_used_for = company_brackets + " " + ci_body.ci.stage
-            category_group = company_brackets + " " + ci_body.ci.category
+    # get expected device and its path
+    company = snow_controller.get_company_by_name(ci_body.company_name)
+    location = snow_controller.get_location_by_name(ci_body.location_name)
+    expected_node = get_prtg_tree_adapter(company, location, [ci_body.ci], snow_controller, min_device=MIN_DEVICES)
 
-            try:
-                used_for_group = prtg_controller.get_group_existence(grandparent_group["parentid"], grandparent_used_for)
-            except ObjectNotFound as e:
-                logger.info(f"Creating grandparent group instead: {e}")
-                # Move the device to the category group in the used_for group and set it's properties
-                grandparent_group = client.add_group(grandparent_used_for, grandparent_group['parentid'])
-                category_group = client.add_group(category_group, grandparent_group['objid'])
-                prtg_controller.moveobj_setproperties_deleteobj(ci_body, category_group['objid'], parent_group)
-                return f"{grandparent_group['name']}, {category_group['name']} created; Device moved to {category_group['name']} within {grandparent_group['name']}"
-            
-            # Since the grandparent group exists, check if the category group exists within the grandparent group
-            try:
-                category_group = prtg_controller.get_group_existence(used_for_group['objid'], category_group)
-            except ObjectNotFound as e:
-                logger.info(f"Creating category group instead :{e}")
-                # Move the device to the category group and set it's properties
-                category_group = client.add_group(category_group, used_for_group['objid'])
-                prtg_controller.moveobj_setproperties_deleteobj(ci_body, category_group['objid'], parent_group)
-                return f"{used_for_group['name']} exists; {category_group['name']} created; Device moved to {category_group['name']} within {used_for_group['name']}"
-            
-            # Since the category group exists within the existing grandparent group, move the device to the category group and set it's properties
-            try:
-                prtg_controller.moveobj_setproperties_deleteobj(ci_body, category_group['objid'], parent_group)
-                return f"{category_group['name']}, {used_for_group['name']} exist; Device moved to {used_for_group['name']} within {category_group['name']}"
-            except Exception as e:
-                logger.error(f"Unexpected Error: {e}")
-                raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, 'An unexpected error occurred.')
-        except HTTPException as e:
-            # Reraise already handled exception
-            logger.error(e)
-            raise e
-        except Exception as e:
-            # Catch all other unhandled exceptions
-            logger.exception('Unhandled error: ' + str(e))
-            raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, 'An unexpected error occurred.')
+    try:
+        return sync.sync_device(expected_node, prtg_controller, snow_controller)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
