@@ -8,6 +8,7 @@ from prtg import Icon
 
 from .models import ConfigItem, Company, Location
 from alt_prtg.models import Device, Group, Status, Node
+from snow import SnowController
 
 
 @dataclass(eq=False, slots=True)
@@ -62,7 +63,7 @@ class PrtgGroupAdapter(Group):
 
 
 # Tree creation is more complex so avoided a class object
-def get_prtg_tree_adapter(company: Company, location: Location, config_items: list[ConfigItem], root_is_site = False, min_device: int = 0) -> Node:
+def get_prtg_tree_adapter(company: Company, location: Location, config_items: list[ConfigItem], controller: SnowController, root_is_site = False, min_device: int = 0) -> Node:
     # Default company's abbreviated name if it exists
     company_name = company.abbreviated_name if company.abbreviated_name else company.name
     # Group format for all groups. Some tools like logging requires a particular format for groups in PRTG.
@@ -82,7 +83,8 @@ def get_prtg_tree_adapter(company: Company, location: Location, config_items: li
         root = site = Node(root_group)
 
     # Required number of devices before organizing devices into groups
-    if len(config_items) < min_device:
+    num_devices = controller.get_device_count(company, location)
+    if num_devices < min_device:
         # Not enough devices. Ignore structure and simply create devices in site group.
         for ci in config_items:
             ci_adapter = PrtgDeviceAdapter.from_ci(ci, company.prtg_device_name_format)

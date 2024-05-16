@@ -207,6 +207,7 @@ class ApiClient:
             .AND().field('location.name').equals(site_name)
             .AND().field('u_cc_type').equals('root')
             .OR().field('u_cc_type').is_empty()
+            .AND().field('u_prtg_implementation').equals('true')
         )
         response = ci_aggregate.get(query=query)
         return int(response.one()['stats']['count'])
