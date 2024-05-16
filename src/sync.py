@@ -138,7 +138,7 @@ def sync_device(expected: Node, current_controller: PrtgController, expected_con
 
     # iterate through groups (exclude device)
     expected_node_iter = anytree.LevelOrderIter(expected, filter_=lambda n: not isinstance(n.prtg_obj, Device))
-    
+
     # require root node to exist
     root_node = next(expected_node_iter)
     root = current_controller.get_group_by_name(root_node.prtg_obj.name)
