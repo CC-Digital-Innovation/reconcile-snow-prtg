@@ -1,22 +1,23 @@
 from dataclasses import dataclass
-from typing import List, Union
 
 from .common import Status
 
 
-@dataclass
+@dataclass(slots=True)
 class Group:
-    id: Union[int, None]
+    id: int | None
     name: str
     priority: int
-    tags: List[str]
+    tags: set[str]
     location: str
     status: Status
     is_active: bool
 
-    # Allow comparison for adapters
-    # Only compares name because SNOW does not store group objects
-    def __eq__(self, other):
-        if isinstance(other, self.__class__):
-            return (self.name) == (other.name)
+    def __eq__(self, other: object) -> bool:
+        """Custom __eq__ with isinstance() to work with subclasses"""
+        if isinstance(other, Group):
+            return ((self.id, self.name, self.priority, self.tags,
+                     self.location, self.status, self.is_active) ==
+                    (other.id, other.name, other.priority, other.tags,
+                     other.location, other.status, other.is_active))
         return NotImplemented

@@ -1,20 +1,24 @@
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from functools import reduce, partial
 from operator import getitem
 from string import Formatter
-from typing import List, Optional
 
 from prtg import Icon
 
 from .models import ConfigItem, Company, Location
 from alt_prtg.models import Device, Group, Status, Node
+from snow import SnowController
 
-@dataclass(eq=False)
+
+@dataclass(eq=False, slots=True)
 class PrtgDeviceAdapter(Device):
-    def __init__(self, ci: ConfigItem, name_format: Optional[str] = None):
-        self.ci = ci
+    """Adapter for ServiceNow configuration items to PRTG devices. Recommended 
+    to use the classmethod from_ci to instantiate this class."""
+    ci: ConfigItem
 
+    @classmethod
+    def from_ci(cls, ci: ConfigItem, name_format: str | None = None):
         if name_format:
             # check for required attributes
             for _, key_name, _, _ in Formatter().parse(name_format):
@@ -25,7 +29,8 @@ class PrtgDeviceAdapter(Device):
                 # raise if value is missing
                 if value is None or value == '':
                     raise ValueError(f'Configuration item "{ci.name}" is missing required attribute "{key_name}".')
-            name = name_format.format_map(ci.__dict__)
+            # pass shallow copy of ci to work with dotted attribute format, e.g., manufacturer.name
+            name = name_format.format_map({field.name: getattr(ci, field.name) for field in fields(ci)})
         else:
             # default to CI name
             name = ci.name
@@ -34,27 +39,36 @@ class PrtgDeviceAdapter(Device):
             raise ValueError(f'Configuration item "{ci.name}" is missing required attribute Used for.')
         if not ci.category:
             raise ValueError(f'Configuration item "{ci.name}" is missing required attribute Category.')
-        tags = [ci.stage, ci.category]
+        tags = {ci.stage, ci.category}
 
-        try:
-            icon = Icon[ci.manufacturer.name.upper()]
-        except KeyError:
-            # Multiple VMware names
-            if ci.manufacturer.name == 'VMware, Inc.':
-                icon = Icon.VMWARE
-            else:
-                icon = None
-        super(PrtgDeviceAdapter, self).__init__(ci.prtg_id, name, str(ci.ip_address), ci.link, 3, tags, '', icon, Status.UP, True)
+        if ci.manufacturer:
+            try:
+                icon = Icon[ci.manufacturer.name.upper()]
+            except KeyError:
+                # Multiple VMware names
+                if ci.manufacturer.name == 'VMware, Inc.':
+                    icon = Icon.VMWARE
+                else:
+                    icon = None
+        else:
+            icon = None
+        return cls(ci.prtg_id, name, str(ci.ip_address), ci.link, 3, tags, '', icon, Status.UP, True, ci)
 
 
-@dataclass(eq=False)
 class PrtgGroupAdapter(Group):
+    """Adapter for ServiceNow configuration item details to represent a PRTG 
+    group with common defaults."""
     def __init__(self, name: str):
-        super(PrtgGroupAdapter, self).__init__(None, name, 3, [], '', Status.UP, True)
+        super(PrtgGroupAdapter, self).__init__(None, name, 3, set(), '', Status.UP, True)
 
 
 # Tree creation is more complex so avoided a class object
-def get_prtg_tree_adapter(company: Company, location: Location, config_items: List[ConfigItem], root_is_site = False, min_device: int = 0) -> Node:
+def get_prtg_tree_adapter(company: Company,
+                          location: Location,
+                          config_items: list[ConfigItem],
+                          controller: SnowController,
+                          root_is_site = False,
+                          min_device: int = 0) -> Node:
     # Default company's abbreviated name if it exists
     company_name = company.abbreviated_name if company.abbreviated_name else company.name
     # Group format for all groups. Some tools like logging requires a particular format for groups in PRTG.
@@ -74,10 +88,11 @@ def get_prtg_tree_adapter(company: Company, location: Location, config_items: Li
         root = site = Node(root_group)
 
     # Required number of devices before organizing devices into groups
-    if len(config_items) < min_device:
+    num_devices = controller.get_device_count(company, location)
+    if num_devices < min_device:
         # Not enough devices. Ignore structure and simply create devices in site group.
         for ci in config_items:
-            ci_adapter = PrtgDeviceAdapter(ci, company.prtg_device_name_format)
+            ci_adapter = PrtgDeviceAdapter.from_ci(ci, company.prtg_device_name_format)
             Node(ci_adapter, parent=site)
         return root
 
@@ -116,7 +131,7 @@ def get_prtg_tree_adapter(company: Company, location: Location, config_items: Li
         for _, categories in pseudo_tree[True].items():
             for _, cis in categories.items():
                 for ci in cis:
-                    Node(PrtgDeviceAdapter(ci, company.prtg_device_name_format), parent=internal_node)
+                    Node(PrtgDeviceAdapter.from_ci(ci, company.prtg_device_name_format), parent=internal_node)
     if False in pseudo_tree:
         # Customer managed devices
         external_node = Node(PrtgGroupAdapter(group_name_fmt.format('Customer Managed Infrastructure')), parent=site)
@@ -129,13 +144,13 @@ def get_prtg_tree_adapter(company: Company, location: Location, config_items: Li
                     ap_node = Node(PrtgGroupAdapter(group_name_fmt.format('APs')), parent=cat_node)
                     for ci in cis:
                         if ci.sys_class == 'Wireless Access Point':
-                            Node(PrtgDeviceAdapter(ci, company.prtg_device_name_format), parent=ap_node)
+                            Node(PrtgDeviceAdapter.from_ci(ci, company.prtg_device_name_format), parent=ap_node)
                         else:
-                            Node(PrtgDeviceAdapter(ci, company.prtg_device_name_format), parent=cat_node)
+                            Node(PrtgDeviceAdapter.from_ci(ci, company.prtg_device_name_format), parent=cat_node)
                     if not ap_node.children:
                         # no children means group is not necessary, remove from tree
                         ap_node.parent = None
                     continue
                 for ci in cis:
-                    Node(PrtgDeviceAdapter(ci, company.prtg_device_name_format), parent=cat_node)
+                    Node(PrtgDeviceAdapter.from_ci(ci, company.prtg_device_name_format), parent=cat_node)
     return root

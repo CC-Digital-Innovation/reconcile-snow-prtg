@@ -1,3 +1,4 @@
+import html
 import json
 import logging.handlers
 import os
@@ -6,7 +7,6 @@ import sys
 from dataclasses import asdict
 from pathlib import PurePath
 from tempfile import SpooledTemporaryFile
-from typing import Union
 
 import dotenv
 from fastapi import Depends, FastAPI, Form, HTTPException, status
@@ -19,13 +19,14 @@ from pydantic import SecretStr
 from pysnow.exceptions import MultipleResults, NoResults
 from requests.exceptions import HTTPError
 
+import sync
 from alt_email import EmailApi, EmailHeaderAuth
 from alt_prtg import PrtgController
 from report import get_add_device_model
 from snow import ApiClient as SnowClient
-from snow import SnowController, get_prtg_tree_adapter
-from sync import sync_trees, RootMismatchException
-
+from snow import SnowController
+from snow.adapter import get_prtg_tree_adapter
+from snow.models import CIBody
 
 # load secrets from .env
 # loaded secrets will not overwrite existing environment variables
@@ -53,6 +54,7 @@ PRTG_TOKEN = os.getenv('PRTG_TOKEN')
 SNOW_INSTANCE = os.environ['SNOW_INSTANCE']
 SNOW_USERNAME = os.environ['SNOW_USER']
 SNOW_PASSWORD = os.environ['SNOW_PASSWORD']
+
 
 # Email
 EMAIL_API = os.getenv('EMAIL_URL')
@@ -97,11 +99,11 @@ def authorize(key: str = Depends(api_key)):
 
 # dependency injection for all endpoints that accept a custom prtg instance
 def custom_prtg_parameters(
-        prtg_url: Union[str, None] = Form(None, description='Set a different PRTG instance. Must include HTTP/S protocol, e.g. https://prtg.instance.com.'),
-        prtg_token: Union[SecretStr, None] = Form(None, description='API token to authenticate with a different PRTG instance (username not necessary).'),
-        prtg_username: Union[SecretStr, None] = Form(None, description='Username to authenticate with a different PRTG instance (password or passhash needed)'),
-        prtg_password: Union[SecretStr, None] = Form(None, description='Password to authenticate with a different PRTG instance (username needed)'),
-        prtg_passhash: Union[SecretStr, None] = Form(None, description='Passhash to authenticate with a different PRTG instance (username needed)'),
+        prtg_url: str | None = Form(None, description='Set a different PRTG instance. Must include HTTP/S protocol, e.g. https://prtg.instance.com.'),
+        prtg_token: SecretStr | None = Form(None, description='API token to authenticate with a different PRTG instance (username not necessary).'),
+        prtg_username: SecretStr | None = Form(None, description='Username to authenticate with a different PRTG instance (password or passhash needed)'),
+        prtg_password: SecretStr | None = Form(None, description='Password to authenticate with a different PRTG instance (username needed)'),
+        prtg_passhash: SecretStr | None = Form(None, description='Passhash to authenticate with a different PRTG instance (username needed)'),
         prtg_verify: bool = Form(True, description='Validate server certificate if set to true (default).')):
     # Check if custom PRTG instance
     if prtg_url:
@@ -122,21 +124,25 @@ def custom_prtg_parameters(
     # use default PRTG instance
     return PrtgClient(PRTG_BASE_URL, prtg_auth, requests_verify=PRTG_VERIFY)
 
+
 logger.info('Starting up XSAutomate API...')
 desc = f'Defaults to the "{PRTG_BASE_URL.split("://")[1]}" instance. In order to use a different PRTG instance, enter the URL and credential parameters before\
       executing an endpoint. To authenticate for a different PRTG instance, enter one of: (1) token, (2) username and password, or (3) username and passhash.'
 app = FastAPI(title='Reconcile Snow & PRTG', description=desc)
 
 @logger.catch
-@app.post('/sync', dependencies=[Depends(authorize)])
-def sync(company_name: str = Form(..., description='Name of Company'), # Ellipsis means it is required
+@app.post('/syncSite', dependencies=[Depends(authorize)])
+def sync_site(company_name: str = Form(..., description='Name of Company'), # Ellipsis means it is required
         site_name: str = Form(..., description='Name of Site (Location)'),
         root_id: int = Form(..., description='ID of root group (not to be confused with Probe Device)'),
         root_is_site: bool = Form(False, description='Set to true if root group is the site'),
-        email: Union[str, None] = Form(None, description='Sends result to email address.'),
+        email: str | None = Form(None, description='Sends result to email address.'),
         prtg_client: PrtgClient = Depends(custom_prtg_parameters)):
     logger.info(f'Syncing for {company_name} at {site_name}...')
     logger.debug(f'Company name: {company_name}, Site name: {site_name}, Root ID: {root_id}, Is Root Site: {root_is_site}')
+    # clean str inputs
+    company_name = html.escape(company_name)
+    site_name = html.escape(site_name)
     try:
         # Get expected tree
         try:
@@ -151,7 +157,7 @@ def sync(company_name: str = Form(..., description='Name of Company'), # Ellipsi
         logger.info(f'Location "{site_name}" found in SNOW.')
         config_items = snow_controller.get_config_items(company, location)
         try:
-            expected_tree = get_prtg_tree_adapter(company, location, config_items, root_is_site, MIN_DEVICES)
+            expected_tree = get_prtg_tree_adapter(company, location, config_items, snow_controller, root_is_site, MIN_DEVICES)
         except ValueError as e:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
 
@@ -169,8 +175,8 @@ def sync(company_name: str = Form(..., description='Name of Company'), # Ellipsi
 
         # Sync trees
         try:
-            devices_added = sync_trees(expected_tree, current_tree, snow_controller, prtg_controller)
-        except RootMismatchException as e:
+            devices_added = sync.sync_trees(expected_tree, current_tree, snow_controller, prtg_controller)
+        except sync.RootMismatchException as e:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
 
         # No changes found, return
@@ -216,10 +222,12 @@ def sync(company_name: str = Form(..., description='Name of Company'), # Ellipsi
 @app.post('/syncAllSites', dependencies=[Depends(authorize)])
 def sync_all_sites(company_name: str = Form(..., description='Name of Company'), # Ellipsis means it is required
         root_id: int = Form(..., description='ID of root group (not to be confused with Probe Device)'),
-        email: Union[str, None] = Form(None, description='Sends result to email address.'),
+        email: str | None = Form(None, description='Sends result to email address.'),
         prtg_client: PrtgClient = Depends(custom_prtg_parameters)):
     logger.info(f'Syncing all sites for {company_name}...')
     logger.debug(f'Company name: {company_name}, Root ID: {root_id}')
+    # clean str input
+    company_name = html.escape(company_name)
     try:
         try:
             company = snow_controller.get_company_by_name(company_name)
@@ -245,14 +253,14 @@ def sync_all_sites(company_name: str = Form(..., description='Name of Company'),
         for location in locations:
             config_items = snow_controller.get_config_items(company, location)
             try:
-                expected_tree = get_prtg_tree_adapter(company, location, config_items, False, MIN_DEVICES)
+                expected_tree = get_prtg_tree_adapter(company, location, config_items, snow_controller, False, MIN_DEVICES)
             except ValueError as e:
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
 
             # Sync trees
             try:
-                devices_added.extend(sync_trees(expected_tree, current_tree, snow_controller, prtg_controller))
-            except RootMismatchException as e:
+                devices_added.extend(sync.sync_trees(expected_tree, current_tree, snow_controller, prtg_controller))
+            except sync.RootMismatchException as e:
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
 
         # No changes found, return
@@ -293,3 +301,20 @@ def sync_all_sites(company_name: str = Form(..., description='Name of Company'),
         logger.exception('Unhandled error: ' + str(e))
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, 'An unexpected error occurred.')
     return f'Successfully added {len(devices_added)} devices to {company_name}.'
+
+@logger.catch
+@app.post("/syncDevice")
+def sync_device(ci_body: CIBody):
+    auth = BasicToken(ci_body.prtg_api_key)
+    client = PrtgClient(ci_body.prtg_url, auth)
+    prtg_controller = PrtgController(client)
+
+    # get expected device and its path
+    company = snow_controller.get_company_by_name(ci_body.company_name)
+    location = snow_controller.get_location_by_name(ci_body.location_name)
+    expected_node = get_prtg_tree_adapter(company, location, [ci_body.ci], snow_controller, min_device=MIN_DEVICES)
+
+    try:
+        return sync.sync_device(expected_node, prtg_controller, snow_controller)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))

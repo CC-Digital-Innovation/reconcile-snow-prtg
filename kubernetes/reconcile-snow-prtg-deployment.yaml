@@ -1,7 +1,6 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  annotations:
   labels:
     app: xsautomate
   name: xsautomate
@@ -12,46 +11,13 @@ spec:
       app: xsautomate
   template:
     metadata:
-      annotations:
-        vault.hashicorp.com/agent-inject: 'true'
-        vault.hashicorp.com/role: 'xsautomate'
-        vault.hashicorp.com/agent-inject-secret-xsautomate: 'secret/xsautomate'
-        vault.hashicorp.com/agent-inject-template-xsautomate: |
-          {{- with secret "secret/xsautomate" -}}
-            export TOKEN="{{ .Data.data.token }}"
-            export PRTG_URL="{{ .Data.data.prtg_url }}"
-            export PRTG_USER="{{ .Data.data.prtg_user }}"
-            export PRTG_PASSWORD="{{ .Data.data.prtg_password }}"
-            export PRTG_PASSHASH="{{ .Data.data.prtg_passhash }}"
-            export PRTG_TOKEN="{{ .Data.data.prtg_token }}"
-            export PRTG_MIN_DEVICES="{{ .Data.data.prtg_min_devices }}"
-            export SNOW_INSTANCE="{{ .Data.data.snow_instance }}"
-            export SNOW_USER="{{ .Data.data.snow_user }}"
-            export SNOW_PASSWORD="{{ .Data.data.snow_password }}"
-            export EMAIL_URL="{{ .Data.data.email_url }}"
-            export EMAIL_TOKEN="{{ .Data.data.email_token }}"
-            export LOGGING_LEVEL="{{ .Data.data.logging_level }}"
-            export SYSLOG_HOST="{{ .Data.data.syslog_host }}"
-            export SYSLOG_PORT="{{ .Data.data.syslog_port }}"
-          {{- end }}
-        vault.hashicorp.com/agent-pre-populate-only: "true"
       labels:
         app: xsautomate
     spec:
       containers:
-        image: registry.quokka.ninja/ccfs/xsautomate-actions:latest
-        imagePullPolicy: Always
+        image: harbor.k3s.quokka.ninja/library/xsautomate:latest
         name: xsautomate
-        args: ['/bin/bash', '-c', 'source /vault/secrets/xsautomate-actions && uvicorn main:app --host 0.0.0.0 --port 80 --root-path /xsautomate']
         ports:
         - containerPort: 80
           protocol: TCP
-        resources:
-          limits:
-            cpu: 500m
-            memory: 1024Mi
-          requests:
-            cpu: 100m
-            memory: 128Mi
-      restartPolicy: Always
-      serviceAccountName: xsautomate
+      automountServiceAccountToken: false
