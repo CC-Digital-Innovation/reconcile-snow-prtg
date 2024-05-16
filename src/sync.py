@@ -128,7 +128,7 @@ def sync_device(expected: Node, current_controller: PrtgController, expected_con
     # get expected device
     expected_device_node = anytree.search.find(expected, filter_=lambda n: isinstance(n.prtg_obj, Device))
     expected_device = expected_device_node.prtg_obj
-    
+
     # check for device ID match early to avoid creating groups first
     if expected_device.id is not None:
         try:
