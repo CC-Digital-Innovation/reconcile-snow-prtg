@@ -266,7 +266,7 @@ def sync_all_sites(company_name: str = Form(..., description='Name of Company'),
         # No changes found, return
         if not devices_added:
             return f'No changes were found for any location at {company_name}.'
-        
+
         # Send Report
         if email and email_client:
             logger.info('Sending report to email...')
