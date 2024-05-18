@@ -128,7 +128,7 @@ class ApiClient:
         response = cis.get(query=query)
         return response.all()
 
-    def get_cis_by_site(self, company_name, location_name):
+    def get_cis_by_site(self, company_name, location_name, internal = None):
         '''Returns a list of all devices from a company'''
         cis = self.client.resource(api_path='/table/cmdb_ci')
         cis.parameters.display_value = True
@@ -137,40 +137,25 @@ class ApiClient:
             .AND().field('company.name').equals(company_name)
             .AND().field('location.name').equals(location_name)
             .AND().field('u_cc_type').equals('root')
-            .OR().field('u_cc_type').is_empty()
             .AND().field('name').order_ascending()
         )
-        response = cis.get(query=query)
-        return response.all()
 
-    def get_internal_cis_by_site(self, company_name, location_name):
-        '''Returns a list of all interal devices to monitor for a company'''
-        cis = self.client.resource(api_path='/table/cmdb_ci')
-        cis.parameters.display_value = True
-        query = (
-            get_active_ci_query()
-            .AND().field('company.name').equals(company_name)
-            .AND().field('location.name').equals(location_name)
-            .AND().field('u_cc_type').equals('root')
-            .OR().field('u_cc_type').is_empty()
-            .AND().field('u_prtg_instrumentation').equals('true')
-            .AND().field('name').order_ascending()
-        )
-        response = cis.get(query=query)
-        return response.all()
+        if internal is not None:
+            if internal:
+                (
+                    query
+                    .AND().field('u_prtg_instrumentation').equals('true')
+                    .OR().field('u_cc_type').is_empty()
+                )
+            else:
+                (
+                    query
+                    .AND().field('u_prtg_instrumentation').equals('false')
+                    .OR().field('u_prtg_instrumentation').is_empty()
+                )
+        else:
+            query.OR().field('u_cc_type').is_empty()
 
-    def get_customer_cis_by_site(self, company_name, location_name):
-        '''Returns a list of all customer devices for a company'''
-        cis = self.client.resource(api_path='/table/cmdb_ci')
-        cis.parameters.display_value = True
-        query = (
-            get_active_ci_query()
-            .AND().field('company.name').equals(company_name)
-            .AND().field('location.name').equals(location_name)
-            .AND().field('u_cc_type').equals('root')
-            .AND().field('u_prtg_instrumentation').equals('false')
-            .AND().field('name').order_ascending()
-        )
         response = cis.get(query=query)
         return response.all()
 
