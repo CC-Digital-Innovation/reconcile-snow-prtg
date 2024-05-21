@@ -132,7 +132,7 @@ def sync_device(expected: Node, current_controller: PrtgController, expected_con
     # check for device ID match early to avoid creating groups first
     if expected_device.id is not None:
         try:
-            _, current_parent = current_controller.get_device(expected_device.id, get_parent=True)  # do not need current device details
+            current_parent = current_controller.get_parent(expected_device)
         except ObjectNotFound:
             raise ValueError(f'Cannot find device {expected_device.ci.name} with ID {expected_device.id}.')
 
@@ -148,15 +148,16 @@ def sync_device(expected: Node, current_controller: PrtgController, expected_con
     groups_to_create = []
     # find first missing group, if any
     for node in expected_node_iter:
+        groups = current_controller.get_groups_by_name(node.prtg_obj.name)
+        # groups can have duplicate names. ensure unique group by its parent ID
         try:
-            existing_group = current_controller.get_group_by_name(node.prtg_obj.name)
-        except ValueError:
+            group = next((group for group in groups if existing_group.id == current_controller.get_parent(group).id))
+        except StopIteration:
             groups_to_create.append(node.prtg_obj)
-            # break early because subsequent groups may match incorrect sub groups,
-            # i.e., 'Prod -> Server' could match with 'DR -> Server'
-            break
-    # add the rest of missing groups, if any
-    groups_to_create.extend([node.prtg_obj for node in expected_node_iter])
+            # add the rest of missing groups, if any. This will naturally break out of outer for loop
+            groups_to_create.extend([node.prtg_obj for node in expected_node_iter])
+        else:
+            existing_group = group
     # create intermediate groups, if any
     # replace existing_group variable for when moving device
     for group in groups_to_create:
