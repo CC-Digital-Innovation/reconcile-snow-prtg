@@ -303,7 +303,7 @@ def sync_all_sites(company_name: str = Form(..., description='Name of Company'),
     return f'Successfully added {len(devices_added)} devices to {company_name}.'
 
 @logger.catch
-@app.post("/syncDevice")
+@app.patch("/syncDevice")
 def sync_device(ci_body: CIBody):
     auth = BasicToken(ci_body.prtg_api_key)
     client = PrtgClient(ci_body.prtg_url, auth)
