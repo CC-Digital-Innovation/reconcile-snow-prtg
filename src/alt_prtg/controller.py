@@ -1,5 +1,3 @@
-from typing import overload
-
 from prtg import ApiClient, Icon
 from prtg.exception import ObjectNotFound
 
@@ -32,25 +30,36 @@ class PrtgController:
         group = self.client.get_group(group_id)
         return self._get_group(group)
 
-    def get_group_by_name(self, name: str, parent_id: int | str | None = None) -> Group:
+    def get_group_by_name(self, name: str, parent: Group | None = None) -> Group:
         """Get a group by its name. Optionally filter by an ancestor group by its ID.
 
         Args:
             name (str): name of group
-            parent_id (int | str | None, optional): filter by ancestor group ID. Defaults to None.
+            parent (Group | None, optional): filter by ancestor group. Defaults to None.
 
         Raises:
-            ValueError: when no group found with name
+            ValueError: when parent group is missing ID, no group found with name, multiple groups found with name
 
         Returns:
             Group
         """
+        if parent is not None:
+            if parent.id is None:
+                raise ValueError(f'Group {parent.name} is missing required attribute id.')
+            parent_id = parent.id
+        else:
+            parent_id = None
+        # client.get_group_by_name() does not work with names containing square brackets ([]),
+        # use client.get_groups_by_name_containing() instead
         groups = self.client.get_groups_by_name_containing(name, parent_id)
-        try:
-            group = groups[0]
-        except IndexError:
+        # due to client.get_groups_by_name_containing() accepting groups with name as substring,
+        # manually compare exact match to get group
+        groups = [group for group in groups if group['name'] == name]
+        if len(groups) == 0:
             raise ValueError(f'No group found with name {name}.')
-        return self._get_group(group)
+        if len(groups) > 1:
+            raise ValueError(f'More than one group found with name {name}.')
+        return self._get_group(groups[0])
 
     def add_group(self, group: Group, parent: Group) -> Group:
         """Add a group
@@ -100,45 +109,50 @@ class PrtgController:
             groups = self.client.get_groups_by_group_id(parent.id)
         return [self._get_group(group) for group in groups]
 
-    def _get_device(self, device: dict) -> tuple[Device, Group]:
-        """Helper function to create a Device and its parent group from a dict payload returned by the API"""
+    def get_groups_by_name(self, name: str, parent: Group | None = None) -> list[Group]:
+        """Get groups with name, optionally filtered by a parent group
+
+        Args:
+            name (str): name of group(s)
+            parent (Group | None, optional): return only groups from this parent. Defaults to None.
+
+        Raises:
+            ValueError: when parent group is missing ID field
+
+        Returns:
+            list[Group]
+        """
+        if parent is not None:
+            if parent.id is None:
+                raise ValueError(f'Group {parent.name} is missing required attribute id.')
+            parent_id = parent.id
+        else:
+            parent_id = None
+        groups = self.client.get_groups_by_name_containing(name, parent_id)
+        return [self._get_group(group) for group in groups]
+
+    def _get_device(self, device: dict) -> Device:
+        """Helper function to create a Device from a dict payload returned by the API"""
         tags = set(device['tags'].split())
         try:
             icon = Icon(device['icon'])
         except ValueError:
             icon = None
         service_url = self.client.get_service_url(device['objid'])
-        try:
-            parent = self.get_group(device['parentid'])
-        except ObjectNotFound:
-            parent = self.get_probe(device['parentid'])
         return Device(device['objid'], device['name'], device['host'], service_url, int(device['priority']), tags, device['location'], icon,
-                      Status(device['status'].lower()), device['active']), parent
+                      Status(device['status'].lower()), device['active'])
 
-    @overload
     def get_device(self, device_id: int | str) -> Device:
-        """Overloaded function to make type hints happy"""
-
-    @overload
-    def get_device(self, device_id: int | str, get_parent: bool = False) -> tuple[Device, Group]:
-        """Overloaded function to make type hints happy"""
-
-    def get_device(self, device_id: int | str, get_parent: bool = False) -> Device | tuple[Device, Group]:
-        """Get a device by its id and optionally its parent group
+        """Get a device by its id
 
         Args:
             device_id (int | str): id of device
-            get_parent (bool, Optional): to additionally return the parent group. Defaults to False.
 
         Returns:
             Device
-            Device, Group: if get_parent is True
         """
         device = self.client.get_device(device_id)
-        if not get_parent:
-            return self._get_device(device)[0]
-        else:
-            return self._get_device(device)
+        return self._get_device(device)
 
     def add_device(self, device: Device, parent: Group) -> Device:
         """Add a device
@@ -192,7 +206,7 @@ class PrtgController:
             if parent.id is None:
                 raise ValueError(f'Group "{parent.name}" is missing required attribute id.')
             devices = self.client.get_devices_by_group_id(parent.id)
-        return [self._get_device(device)[0] for device in devices]
+        return [self._get_device(device) for device in devices]
 
     def update_device(self, device: Device):
         """Update a device
@@ -218,6 +232,29 @@ class PrtgController:
             self.client.set_tags(device.id, list(device.tags))
         if device.icon and device.icon != current_device.icon:
             self.client.set_icon(device.id, device.icon)
+
+    def get_parent(self, obj: Device | Group) -> Group:
+        """Get object's parent
+
+        Args:
+            obj (Device | Group): object to return parent of
+
+        Raises:
+            ValueError: when object ID is missing or obj is not a device or group
+
+        Returns:
+            Group
+        """
+        if obj.id is None:
+            raise ValueError(f'Cannot get parent, object ID is missing for object {obj.name}')
+        if isinstance(obj, Device):
+            obj_dict = self.client.get_device(obj.id)
+        elif isinstance(obj, Group):
+            obj_dict = self.client.get_group(obj.id)
+        else:
+            raise ValueError(f'Unsupported type {type(obj)}')
+        group = self.client.get_group(obj_dict['parentid'])
+        return self._get_group(group)
 
     def move_object(self, obj: Device | Group, parent: Group):
         """Move an object
@@ -279,7 +316,7 @@ class PrtgController:
 
         # Build tree backward from leaf nodes, i.e. devices
         for device_dict in devices:
-            device = self._get_device(device_dict)[0]
+            device = self._get_device(device_dict)
             nodes_to_create = [device]  # ordered list of nodes to create later
             curr_parent_id = device_dict['parentid']
             # Loop through parent groups using 'parentid' until existing Node is reached,

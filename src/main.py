@@ -266,7 +266,7 @@ def sync_all_sites(company_name: str = Form(..., description='Name of Company'),
         # No changes found, return
         if not devices_added:
             return f'No changes were found for any location at {company_name}.'
-        
+
         # Send Report
         if email and email_client:
             logger.info('Sending report to email...')
@@ -303,7 +303,7 @@ def sync_all_sites(company_name: str = Form(..., description='Name of Company'),
     return f'Successfully added {len(devices_added)} devices to {company_name}.'
 
 @logger.catch
-@app.post("/syncDevice")
+@app.patch("/syncDevice")
 def sync_device(ci_body: CIBody):
     auth = BasicToken(ci_body.prtg_api_key)
     client = PrtgClient(ci_body.prtg_url, auth)

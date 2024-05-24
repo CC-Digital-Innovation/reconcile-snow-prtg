@@ -3,20 +3,20 @@ from ipaddress import AddressValueError, IPv4Address
 from .models import Company, ConfigItem, Country, Location, Manufacturer
 
 
+# map SNOW choice list names to formats
+FOREMAT_MAP = {
+    'ip only': '{manufacturer.name} {model_number} ({ip_address})',
+    'hostname + ip': '{manufacturer.name} {model_number} {host_name} ({ip_address})'
+}
+
+
 class SnowController:
     def __init__(self, client):
         self.client = client
 
     def get_company_by_name(self, name: str) -> Company:
         company = self.client.get_company(name)
-
-        # map SNOW choice list names to formats
-        format_map = {
-            'ip only': '{manufacturer.name} {model_number} ({ip_address})',
-            'hostname + ip': '{manufacturer.name} {model_number} {host_name} ({ip_address})'
-        }
-
-        return Company(company['sys_id'], company['name'].strip(), company['u_abbreviated_name'], format_map.get(company['u_prtg_format'].lower(), None))
+        return Company(company['sys_id'], company['name'].strip(), company['u_abbreviated_name'], FOREMAT_MAP.get(company['u_prtg_format'].lower(), None))
 
     def _get_location(self, location: dict):
         try:

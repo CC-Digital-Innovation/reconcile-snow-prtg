@@ -11,6 +11,17 @@ from alt_prtg.models import Device, Group, Status, Node
 from snow import SnowController
 
 
+def _check_required_fields(ci: ConfigItem, name_format: str):
+    for _, key_name, _, _ in Formatter().parse(name_format):
+        if key_name is None:
+            continue
+        # reduce to get value of nested attributes
+        value = reduce(getattr, key_name.split('.'), ci)
+        # raise if value is missing
+        if value is None or value == '':
+            raise ValueError(f'Configuration item "{ci.name}" is missing required attribute "{key_name}".')
+
+
 @dataclass(eq=False, slots=True)
 class PrtgDeviceAdapter(Device):
     """Adapter for ServiceNow configuration items to PRTG devices. Recommended 
@@ -21,14 +32,7 @@ class PrtgDeviceAdapter(Device):
     def from_ci(cls, ci: ConfigItem, name_format: str | None = None):
         if name_format:
             # check for required attributes
-            for _, key_name, _, _ in Formatter().parse(name_format):
-                if key_name is None:
-                    continue
-                # reduce to get value of nested attributes
-                value = reduce(getattr, key_name.split('.'), ci)
-                # raise if value is missing
-                if value is None or value == '':
-                    raise ValueError(f'Configuration item "{ci.name}" is missing required attribute "{key_name}".')
+            _check_required_fields(ci, name_format)
             # pass shallow copy of ci to work with dotted attribute format, e.g., manufacturer.name
             name = name_format.format_map({field.name: getattr(ci, field.name) for field in fields(ci)})
         else:
@@ -41,17 +45,15 @@ class PrtgDeviceAdapter(Device):
             raise ValueError(f'Configuration item "{ci.name}" is missing required attribute Category.')
         tags = {ci.stage, ci.category}
 
-        if ci.manufacturer:
-            try:
-                icon = Icon[ci.manufacturer.name.upper()]
-            except KeyError:
-                # Multiple VMware names
-                if ci.manufacturer.name == 'VMware, Inc.':
-                    icon = Icon.VMWARE
-                else:
-                    icon = None
-        else:
-            icon = None
+        icon = None  # default to None
+        try:
+            icon = Icon[ci.manufacturer.name.upper()]
+        except KeyError:
+            # Multiple VMware names
+            if ci.manufacturer.name == 'VMware, Inc.':
+                icon = Icon.VMWARE
+        except AttributeError:
+            pass  # None or other type
         return cls(ci.prtg_id, name, str(ci.ip_address), ci.link, 3, tags, '', icon, Status.UP, True, ci)
 
 
@@ -60,6 +62,20 @@ class PrtgGroupAdapter(Group):
     group with common defaults."""
     def __init__(self, name: str):
         super(PrtgGroupAdapter, self).__init__(None, name, 3, set(), '', Status.UP, True)
+
+
+def _build_pseudo_tree(depth: int):
+    """Recursive function that dynamically builds psuedo tree depth with leaf nodes containing a list.
+    
+    E.g., build_tree(2) allows a defaultdict like:
+        {
+            group-1: {
+                group-2: []
+            }
+        }
+    """
+    factory = partial(_build_pseudo_tree, depth - 1) if depth > 1 else list
+    return defaultdict(factory)
 
 
 # Tree creation is more complex so avoided a class object
@@ -102,19 +118,8 @@ def get_prtg_tree_adapter(company: Company,
     # Order matters: left to right represents going deeper into the tree
     filters = ('is_internal', 'stage', 'category')
 
-    # Recursive function that dynamically builds psuedo tree depth with
-    # leaf nodes containing a list.
-    # E.g. build_tree(2) allows a defaultdict like:
-    # {
-    #   group-1: {
-    #     group-2: []
-    #   }
-    # }
-    def build_tree(depth: int):
-        factory = partial(build_tree, depth - 1) if depth > 1 else list
-        return defaultdict(factory)
-
-    pseudo_tree = build_tree(len(filters))
+    # build temporary tree
+    pseudo_tree = _build_pseudo_tree(len(filters))
 
     # Add ci to psuedo tree as leaf node
     for ci in config_items:

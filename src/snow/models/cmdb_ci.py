@@ -22,7 +22,7 @@ class ConfigItem:
     category: str
     sys_class: str
     link: str
-    prtg_id: int |None
+    prtg_id: int | None
     is_internal: bool
     host_name: str | None = None
 

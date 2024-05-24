@@ -2,6 +2,21 @@ import pysnow
 import requests
 
 
+def get_active_ci_query() -> pysnow.QueryBuilder:
+    """Return a new query for active configuration items.
+
+    Returns:
+        QueryBuilder
+    """
+    return (
+        pysnow.QueryBuilder()
+        .field('install_status').equals('1')            # Installed
+        .OR().field('install_status').equals('101')     # Active
+        .OR().field('install_status').equals('107')     # Duplicate installed
+        .AND().field('u_prtg_implementation').equals('true')
+    )
+
+
 class ApiClient:
     def __init__(self, instance, username, password, ssl=True):
         self.instance = instance
@@ -36,7 +51,6 @@ class ApiClient:
     def get_company_sites(self, company_name):
         '''Return all sites of a company'''
         sites = self.client.resource(api_path='/table/cmn_location')
-        #TODO use u_site_name when it is consistent (instead of 'name' field)
         query = (
             pysnow.QueryBuilder()
             .field('u_active').equals('true')
@@ -65,7 +79,7 @@ class ApiClient:
         response = companies.get(query=query, stream=True)
         return response.one()
 
-    def get_location(self, site_name):
+    def get_location(self, location_name):
         '''Return a site location
         
         Raise
@@ -77,11 +91,10 @@ class ApiClient:
             Could not find record
         '''
         locations = self.client.resource(api_path='/table/cmn_location')
-        #TODO use u_site_name when it is consistent (instead of 'name' field)
         query = (
             pysnow.QueryBuilder()
             .field('u_active').equals('true')
-            .AND().field('name').equals(site_name)
+            .AND().field('name').equals(location_name)
         )
         response = locations.get(query=query, stream=True)
         return response.one()
@@ -99,80 +112,50 @@ class ApiClient:
         response = locations.get(query=query)
         return response.all()
 
-    def get_cis_filtered(self, company_name, location, category, stage):
+    def get_cis_filtered(self, company_name, location_name, category, stage):
         '''Returns a list of all devices filtered by company, location, and category'''
         cis = self.client.resource(api_path='/table/cmdb_ci')
         query = (
-            pysnow.QueryBuilder()
-            .field('company.name').equals(company_name)
-            .AND().field('name').order_ascending()
-            .AND().field('install_status').equals('1')      # Installed
-            .OR().field('install_status').equals('101')     # Active
-            .OR().field('install_status').equals('107')     # Duplicate installed
-            .AND().field('location.name').equals(location)
+            get_active_ci_query()
+            .AND().field('company.name').equals(company_name)
+            .AND().field('location.name').equals(location_name)
             .AND().field('u_category').equals(category)
             .AND().field('u_used_for').equals(stage)
             .AND().field('u_cc_type').equals('root')
-            .AND().field('u_prtg_implementation').equals('true')
             .AND().field('u_prtg_instrumentation').equals('false')
+            .AND().field('name').order_ascending()
         )
         response = cis.get(query=query)
         return response.all()
 
-    def get_cis_by_site(self, company_name, site_name):
+    def get_cis_by_site(self, company_name, location_name, internal = None):
         '''Returns a list of all devices from a company'''
         cis = self.client.resource(api_path='/table/cmdb_ci')
         cis.parameters.display_value = True
         query = (
-            pysnow.QueryBuilder()
-            .field('company.name').equals(company_name)
-            .AND().field('name').order_ascending()
-            .AND().field('install_status').equals('1')      # Installed
-            .OR().field('install_status').equals('101')     # Active
-            .OR().field('install_status').equals('107')     # Duplicate installed
-            .AND().field('location.name').equals(site_name)
+            get_active_ci_query()
+            .AND().field('company.name').equals(company_name)
+            .AND().field('location.name').equals(location_name)
             .AND().field('u_cc_type').equals('root')
-            .OR().field('u_cc_type').is_empty()
-            .AND().field('u_prtg_implementation').equals('true')
+            .AND().field('name').order_ascending()
         )
-        response = cis.get(query=query)
-        return response.all()
 
-    def get_internal_cis_by_site(self, company_name, site_name):
-        '''Returns a list of all interal devices to monitor for a company'''
-        cis = self.client.resource(api_path='/table/cmdb_ci')
-        cis.parameters.display_value = True
-        query = (
-            pysnow.QueryBuilder()
-            .field('company.name').equals(company_name)
-            .AND().field('name').order_ascending()
-            .AND().field('install_status').equals('1')      # Installed
-            .OR().field('install_status').equals('101')     # Active
-            .OR().field('install_status').equals('107')     # Duplicate installed
-            .AND().field('location.name').equals(site_name)
-            .AND().field('u_cc_type').equals('root')
-            .AND().field('u_prtg_implementation').equals('true')
-            .AND().field('u_prtg_instrumentation').equals('true')
-        )
-        response = cis.get(query=query)
-        return response.all()
+        if internal is not None:
+            if internal:
+                (
+                    query
+                    .AND().field('u_prtg_instrumentation').equals('true')
+                    .OR().field('u_cc_type').is_empty()
+                )
+            else:
+                (
+                    query
+                    .AND().field('u_prtg_instrumentation').equals('false')
+                    .OR().field('u_prtg_instrumentation').is_empty()
+                )
+        else:
+            query.OR().field('u_cc_type').is_empty()
 
-    def get_customer_cis_by_site(self, company_name, site_name):
-        '''Returns a list of all customer devices for a company'''
-        cis = self.client.resource(api_path='/table/cmdb_ci')
-        cis.parameters.display_value = True
-        query = (
-            pysnow.QueryBuilder()
-            .field('company.name').equals(company_name)
-            .AND().field('name').order_ascending()
-            .AND().field('install_status').equals('1')      # Installed
-            .OR().field('install_status').equals('101')     # Active
-            .OR().field('install_status').equals('107')     # Duplicate installed
-            .AND().field('location.name').equals(site_name)
-            .AND().field('u_cc_type').equals('root')
-            .AND().field('u_prtg_implementation').equals('true')
-            .AND().field('u_prtg_instrumentation').equals('false')
-        )
         response = cis.get(query=query)
         return response.all()
 
@@ -192,22 +175,18 @@ class ApiClient:
         response = ci_table.update(query={'sys_id': sys_id}, payload=update)
         return response['u_prtg_id'] == value
 
-    def get_cis_count(self, company_name, site_name):
+    def get_cis_count(self, company_name, location_name):
         """Get a count of all PRTG monitored configuration items from a company
         site."""
         ci_aggregate = self.client.resource('/stats/cmdb_ci')
         ci_aggregate.parameters.add_custom({'sysparm_count': True})
         query = (
-            pysnow.QueryBuilder()
-            .field('company.name').equals(company_name)
-            .AND().field('name').order_ascending()
-            .AND().field('install_status').equals('1')      # Installed
-            .OR().field('install_status').equals('101')     # Active
-            .OR().field('install_status').equals('107')     # Duplicate installed
-            .AND().field('location.name').equals(site_name)
+            get_active_ci_query()
+            .AND().field('company.name').equals(company_name)
+            .AND().field('location.name').equals(location_name)
             .AND().field('u_cc_type').equals('root')
             .OR().field('u_cc_type').is_empty()
-            .AND().field('u_prtg_implementation').equals('true')
+            .AND().field('name').order_ascending()
         )
         response = ci_aggregate.get(query=query)
         return int(response.one()['stats']['count'])
