@@ -8,6 +8,7 @@ from dataclasses import asdict
 from pathlib import PurePath
 from tempfile import SpooledTemporaryFile
 
+import anytree
 import dotenv
 from fastapi import Depends, FastAPI, Form, HTTPException, status
 from fastapi.security import APIKeyHeader
@@ -22,6 +23,7 @@ from requests.exceptions import HTTPError
 import sync
 from alt_email import EmailApi, EmailHeaderAuth
 from alt_prtg import PrtgController
+from alt_prtg.models import Device
 from report import get_add_device_model
 from snow import ApiClient as SnowClient
 from snow import SnowController
@@ -313,8 +315,10 @@ def sync_device(ci_body: CIBody):
     company = snow_controller.get_company_by_name(ci_body.company_name)
     location = snow_controller.get_location_by_name(ci_body.location_name)
     expected_node = get_prtg_tree_adapter(company, location, [ci_body.ci], snow_controller, min_device=MIN_DEVICES)
+    device_node = anytree.find(expected_node, filter_=lambda x: isinstance(x.prtg_obj, Device))
+    device_path = device_node.path
 
     try:
-        return sync.sync_device(expected_node, prtg_controller, snow_controller)
+        return sync.sync_device(device_path, prtg_controller, snow_controller)
     except ValueError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))

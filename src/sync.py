@@ -109,12 +109,12 @@ def sync_trees(expected: Node, current: Node, expected_controller: SnowControlle
     return [node.prtg_obj for node in device_to_add]
 
 
-def sync_device(expected: Node, current_controller: PrtgController, expected_controller: SnowController) -> Device:
+def sync_device(expected_path: tuple[Node], current_controller: PrtgController, expected_controller: SnowController) -> Device:
     """Synchronize a given device: (1) create groups, if necessary, (2) update device details, (3) move device if necessary, 
     and (4) remove last group if empty. If device does not exist, simply create device and any intermediate groups if necessary.
 
     Args:
-        expected (Node): tree representing path to device and its updated details
+        expected (tuple[Node]): tuple of nodes representing path to device and its updated details
         current_controller (PrtgController): controller to interact with platform to sync
         expected_controller (SnowController): controller to update device ID field, only needed if not already created
 
@@ -126,7 +126,7 @@ def sync_device(expected: Node, current_controller: PrtgController, expected_con
         Device
     """
     # get expected device
-    expected_device_node = anytree.search.find(expected, filter_=lambda n: isinstance(n.prtg_obj, Device))
+    expected_device_node = expected_path[-1]  # last node is device
     expected_device = expected_device_node.prtg_obj
 
     # check for device ID match early to avoid creating groups first
@@ -137,7 +137,7 @@ def sync_device(expected: Node, current_controller: PrtgController, expected_con
             raise ValueError(f'Cannot find device {expected_device.ci.name} with ID {expected_device.id}.')
 
     # iterate through groups (exclude device)
-    expected_node_iter = anytree.LevelOrderIter(expected, filter_=lambda n: not isinstance(n.prtg_obj, Device))
+    expected_node_iter = iter(expected_path[:-1])
 
     # require root node to exist
     root_node = next(expected_node_iter)
@@ -182,11 +182,15 @@ def sync_device(expected: Node, current_controller: PrtgController, expected_con
         logger.info(f'Device {expected_device.name} is in incorrect group. Moving to {existing_group.name}...')
         current_controller.move_object(expected_device, existing_group)
 
-        # (4) remove last empty group if empty
-        groups = current_controller.get_groups(current_parent)
-        devices = current_controller.get_devices(current_parent)
-        if not groups and not devices:
+        # (4) remove parent group(s) if empty
+        while True:
+            groups = current_controller.get_groups(current_parent)
+            devices = current_controller.get_devices(current_parent)
+            if groups or devices or current_parent.id == root.id:
+                break
             logger.info(f'Previous group is empty. Deleteing group {current_parent.name}...')
+            ancestor = current_controller.get_parent(current_parent)
             current_controller.delete_object(current_parent)
+            current_parent = ancestor
     # return updated device (new current device)
     return current_controller.get_device(expected_device.id)
