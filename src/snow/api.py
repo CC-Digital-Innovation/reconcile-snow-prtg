@@ -10,10 +10,10 @@ def get_active_ci_query() -> pysnow.QueryBuilder:
     """
     return (
         pysnow.QueryBuilder()
-            .field('install_status').equals('1')            # Installed
-            .OR().field('install_status').equals('101')     # Active
-            .OR().field('install_status').equals('107')     # Duplicate installed
-            .AND().field('u_prtg_implementation').equals('true')
+        .field('install_status').equals('1')            # Installed
+        .OR().field('install_status').equals('101')     # Active
+        .OR().field('install_status').equals('107')     # Duplicate installed
+        .AND().field('u_prtg_implementation').equals('true')
     )
 
 
