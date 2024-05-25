@@ -24,29 +24,27 @@ def sync_trees(expected: Node, current: Node, expected_controller: SnowControlle
     Returns:
         tuple[list[Device], list[Device]]: list of new devices added and deleted
     """
-
-    # Sync group ids
-    # _sync_groups(expected, current)
+    current_devices = anytree.findall(current, filter_=lambda n: isinstance(n.prtg_obj, Device))
+    expected_devices = anytree.findall(expected, filter_=lambda n: isinstance(n.prtg_obj, Device))
 
     # sync all devices, counting new devices added
     devices_added = [] 
-    # map {device_id: node} for quicker access
-    current_devices = {node.prtg_obj.id: node for node in anytree.findall(current, filter_=lambda n: isinstance(n.prtg_obj, Device))}
-    for node in anytree.findall(expected, filter_=lambda n: isinstance(n.prtg_obj, Device)):
+    current_devices_ids = {node.prtg_obj.id for node in current_devices}
+    for node in expected_devices:
         device = sync_device(node.path, current_controller, expected_controller)
-        if node.prtg_obj.id is None or node.prtg_obj.id not in current_devices:
+        if node.prtg_obj.id is None or node.prtg_obj.id not in current_devices_ids:
             devices_added.append(device)
-        node.prtg_obj.id = device.id
+        node.prtg_obj.id = device.id  # update ID before deleting inactive devices
 
     # remove inactive or removed devices
     devices_deleted = []
-    expected_devices_id = {node.prtg_obj.id for node in anytree.findall(expected, filter_=lambda n: isinstance(n.prtg_obj, Device))}
-    for node in current_devices.values():
-        if node.prtg_obj.id in expected_devices_id:
+    expected_devices_ids = {node.prtg_obj.id for node in expected_devices}
+    for node in current_devices:
+        if node.prtg_obj.id in expected_devices_ids:
             continue
         devices_deleted.append(node.prtg_obj)
         current_parent = current_controller.get_parent(node.prtg_obj)
-        logger.info(f'Device {node.prtg_obj.name} is not considered active. Deleting device...')
+        logger.info(f'Device {node.prtg_obj.name} is no longer considered active. Deleting device...')
         current_controller.delete_object(node.prtg_obj)
 
         # remove empty parent group(s), if any
