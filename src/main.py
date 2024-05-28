@@ -137,6 +137,7 @@ def sync_site(company_name: str = Form(..., description='Name of Company'), # El
         site_name: str = Form(..., description='Name of Site (Location)'),
         root_id: int = Form(..., description='ID of root group (not to be confused with Probe Device)'),
         root_is_site: bool = Form(False, description='Set to true if root group is the site'),
+        delete: bool = Form(False, description='If true, delete inactive devices. Defaults to false.'),
         email: str | None = Form(None, description='Sends result to email address.'),
         prtg_client: PrtgClient = Depends(custom_prtg_parameters)):
     logger.info(f'Syncing for {company_name} at {site_name}...')
@@ -176,7 +177,7 @@ def sync_site(company_name: str = Form(..., description='Name of Company'), # El
 
         # Sync trees
         try:
-            devices_added, devices_deleted = sync.sync_trees(expected_tree, current_tree, snow_controller, prtg_controller)
+            devices_added, devices_deleted = sync.sync_trees(expected_tree, current_tree, snow_controller, prtg_controller, delete=delete)
         except sync.RootMismatchException as e:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
 
@@ -239,6 +240,7 @@ def sync_site(company_name: str = Form(..., description='Name of Company'), # El
 @app.post('/syncAllSites', dependencies=[Depends(authorize)])
 def sync_all_sites(company_name: str = Form(..., description='Name of Company'), # Ellipsis means it is required
         root_id: int = Form(..., description='ID of root group (not to be confused with Probe Device)'),
+        delete: bool = Form(False, description='If true, delete inactive devices. Defaults to false.'),
         email: str | None = Form(None, description='Sends result to email address.'),
         prtg_client: PrtgClient = Depends(custom_prtg_parameters)):
     logger.info(f'Syncing all sites for {company_name}...')
@@ -277,7 +279,7 @@ def sync_all_sites(company_name: str = Form(..., description='Name of Company'),
 
             # Sync trees
             try:
-                curr_added, curr_deleted = sync.sync_trees(expected_tree, current_tree, snow_controller, prtg_controller)
+                curr_added, curr_deleted = sync.sync_trees(expected_tree, current_tree, snow_controller, prtg_controller, delete=delete)
             except sync.RootMismatchException as e:
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
             devices_added.extend(curr_added)

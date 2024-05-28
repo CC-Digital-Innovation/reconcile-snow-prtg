@@ -11,7 +11,7 @@ class RootMismatchException(Exception):
     "Raise when root does not match"
 
 
-def sync_trees(expected: Node, current: Node, expected_controller: SnowController, current_controller: PrtgController) -> tuple[list[Device], list[Device]]:
+def sync_trees(expected: Node, current: Node, expected_controller: SnowController, current_controller: PrtgController, delete: bool = False) -> tuple[list[Device], list[Device]]:
     """Synchronize a given tree: (1) add missing devices, (2) remove deactivated devices (not yet unsupported),
     and (3) update device with mismatched details
 
@@ -20,6 +20,7 @@ def sync_trees(expected: Node, current: Node, expected_controller: SnowControlle
         current (Node): tree as seen from PRTG
         expected_controller (SnowController): controller to update SNOW, only used to update PRTG ID of device
         current_controller (PrtgController): controller to update PRTG structure
+        delete (bool): if set to True, deletes inactive devices from current tree
 
     Returns:
         tuple[list[Device], list[Device]]: list of new devices added and deleted
@@ -36,6 +37,8 @@ def sync_trees(expected: Node, current: Node, expected_controller: SnowControlle
             devices_added.append(device)
         node.prtg_obj.id = device.id  # update ID before deleting inactive devices
 
+    if not delete:
+        return devices_added, []
     # remove inactive or removed devices
     devices_deleted = []
     expected_devices_ids = {node.prtg_obj.id for node in expected_devices}
