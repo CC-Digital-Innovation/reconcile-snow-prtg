@@ -3,6 +3,8 @@ from ipaddress import IPv4Address
 
 from pydantic import BaseModel
 
+from snow.models import Company, Location
+
 
 @dataclass(slots=True)
 class Manufacturer:
@@ -25,12 +27,12 @@ class ConfigItem:
     prtg_id: int | None
     is_internal: bool
     host_name: str | None = None
+    company: Company | None = None
+    location: Location | None = None
 
 
-class CIBody(BaseModel):
+class DeviceBody(BaseModel):
     """Model for API endpoint body to sync a configuration item from ServiceNow."""
     prtg_url: str
     prtg_api_key: str
-    company_name: str
-    location_name: str
-    ci: ConfigItem
+    device_id: str

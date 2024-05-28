@@ -27,7 +27,7 @@ from alt_prtg.models import Device
 from snow import ApiClient as SnowClient
 from snow import SnowController
 from snow.adapter import get_prtg_tree_adapter
-from snow.models import CIBody
+from snow.models import DeviceBody
 
 # load secrets from .env
 # loaded secrets will not overwrite existing environment variables
@@ -342,15 +342,18 @@ def sync_all_sites(company_name: str = Form(..., description='Name of Company'),
 
 @logger.catch
 @app.patch("/syncDevice")
-def sync_device(ci_body: CIBody):
-    auth = BasicToken(ci_body.prtg_api_key)
-    client = PrtgClient(ci_body.prtg_url, auth)
+def sync_device(device_body: DeviceBody):
+    auth = BasicToken(device_body.prtg_api_key)
+    client = PrtgClient(device_body.prtg_url, auth)
     prtg_controller = PrtgController(client)
 
+    ci = snow_controller.get_config_item(device_body.device_id)
+
+    if ci.company is None or ci.location is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f'Cannot sync device {ci.name}. Missing company or location information in SNOW.')
+    
     # get expected device and its path
-    company = snow_controller.get_company_by_name(ci_body.company_name)
-    location = snow_controller.get_location_by_name(ci_body.location_name)
-    expected_node = get_prtg_tree_adapter(company, location, [ci_body.ci], snow_controller, min_device=MIN_DEVICES)
+    expected_node = get_prtg_tree_adapter(ci.company, ci.location, [ci], snow_controller, min_device=MIN_DEVICES)
     device_node = anytree.find(expected_node, filter_=lambda x: isinstance(x.prtg_obj, Device))
     device_path = device_node.path
 

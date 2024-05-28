@@ -1,5 +1,7 @@
 from ipaddress import AddressValueError, IPv4Address
 
+import requests
+
 from .models import Company, ConfigItem, Country, Location, Manufacturer
 
 
@@ -14,9 +16,12 @@ class SnowController:
     def __init__(self, client):
         self.client = client
 
+    def _get_company(self, company: dict) -> Company:
+        return Company(company['sys_id'], company['name'].strip(), company['u_abbreviated_name'], FOREMAT_MAP.get(company['u_prtg_format'].lower(), None))
+
     def get_company_by_name(self, name: str) -> Company:
         company = self.client.get_company(name)
-        return Company(company['sys_id'], company['name'].strip(), company['u_abbreviated_name'], FOREMAT_MAP.get(company['u_prtg_format'].lower(), None))
+        return self._get_company(company)
 
     def _get_location(self, location: dict):
         try:
@@ -63,9 +68,27 @@ class SnowController:
             prtg_id = None
 
         cc_device = True if ci['u_prtg_instrumentation'] == 'true' else False
+
+        try:
+            company_dict = self.client.get_record(ci['company']['link'])
+        except (KeyError, requests.exceptions.RequestException):
+            company = None
+        else:
+            company = self._get_company(company_dict)
+
+        try:
+            location_dict = self.client.get_record(ci['location']['link'])
+        except (KeyError, requests.exceptions.RequestException):
+            location = None
+        else:
+            location = self._get_location(location_dict)
+
         return ConfigItem(ci['sys_id'], ci['name'], ip_address, manufacturer,
                           ci['model_number'], stage, category, sys_class, link,
-                          prtg_id, cc_device, hostname)
+                          prtg_id, cc_device, hostname, company, location)
+
+    def get_config_item(self, id: str) -> ConfigItem:
+        return self._get_config_item(self.client.get_ci(id))
 
     def get_config_items(self, company: Company, location: Location) -> list[ConfigItem]:
         cis = self.client.get_cis_by_site(company.name, location.name)
