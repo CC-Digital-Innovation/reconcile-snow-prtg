@@ -3,7 +3,8 @@ from ipaddress import IPv4Address
 
 from pydantic import BaseModel
 
-from snow.models import Company, Location
+from snow.models.company import Company
+from snow.models.location import Location
 
 
 @dataclass(slots=True)
