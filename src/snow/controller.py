@@ -41,7 +41,7 @@ class SnowController:
         locations = self.client.get_company_locations(company_name)
         return [self._get_location(location) for location in locations]
 
-    def _get_config_item(self, ci: dict):
+    def _get_config_item(self, ci: dict, company: Company | None = None, location: Location | None = None):
         try:
             ip_address = IPv4Address(ci['ip_address'].strip())
         except AddressValueError:
@@ -69,19 +69,21 @@ class SnowController:
 
         cc_device = True if ci['u_prtg_instrumentation'] == 'true' else False
 
-        try:
-            company_dict = self.client.get_record(ci['company']['link'])
-        except (KeyError, requests.exceptions.RequestException):
-            company = None
-        else:
-            company = self._get_company(company_dict)
+        if company is None:
+            try:
+                company_dict = self.client.get_record(ci['company']['link'])['result']
+            except (KeyError, requests.exceptions.RequestException):
+                pass  # company is already None, continue
+            else:
+                company = self._get_company(company_dict)
 
-        try:
-            location_dict = self.client.get_record(ci['location']['link'])
-        except (KeyError, requests.exceptions.RequestException):
-            location = None
-        else:
-            location = self._get_location(location_dict)
+        if location is None:
+            try:
+                location_dict = self.client.get_record(ci['location']['link'])['result']
+            except (KeyError, requests.exceptions.RequestException):
+                pass  # location is already None, continue
+            else:
+                location = self._get_location(location_dict)
 
         return ConfigItem(ci['sys_id'], ci['name'], ip_address, manufacturer,
                           ci['model_number'], stage, category, sys_class, link,
@@ -92,7 +94,7 @@ class SnowController:
 
     def get_config_items(self, company: Company, location: Location) -> list[ConfigItem]:
         cis = self.client.get_cis_by_site(company.name, location.name)
-        return [self._get_config_item(ci) for ci in cis]
+        return [self._get_config_item(ci, company, location) for ci in cis]
 
     def update_config_item(self, ci: ConfigItem):
         # Currently only updates prtg_id field
