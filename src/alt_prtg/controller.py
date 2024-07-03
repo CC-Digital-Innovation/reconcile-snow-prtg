@@ -342,6 +342,9 @@ class PrtgController:
 
         # Build tree backward from leaf nodes, i.e. devices
         for device_dict in devices:
+            # ignore probe devices
+            if device_dict['name'] == 'Probe Device':
+                continue
             device = self._get_device(device_dict)
             nodes_to_create = [device]  # ordered list of nodes to create later
             curr_parent_id = device_dict['parentid']
