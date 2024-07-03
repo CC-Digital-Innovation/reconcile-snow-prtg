@@ -272,7 +272,11 @@ class PrtgController:
         if isinstance(obj, Device):
             obj_dict = self.client.get_device(obj.id)
         elif isinstance(obj, Group):
-            obj_dict = self.client.get_group(obj.id)
+            try:
+                obj_dict = self.client.get_group(obj.id)
+            except ObjectNotFound:
+                # parent could be a probe
+                obj_dict = self.client.get_probe(obj.id)
         else:
             raise ValueError(f'Unsupported type {type(obj)}')
         group = self.client.get_group(obj_dict['parentid'])
