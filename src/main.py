@@ -280,7 +280,7 @@ def sync_all_sites(company_name: str = Form(..., description='Name of Company'),
             # Sync trees
             try:
                 curr_added, curr_deleted = sync.sync_trees(expected_tree, current_tree, snow_controller, prtg_controller, delete=delete)
-            except sync.RootMismatchException as e:
+            except (sync.RootMismatchException, ValueError) as e:
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
             devices_added.extend(curr_added)
             devices_deleted.extend(curr_deleted)
