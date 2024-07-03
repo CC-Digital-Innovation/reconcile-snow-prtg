@@ -88,7 +88,11 @@ def sync_device(expected_path: tuple[Node], current_controller: PrtgController, 
 
     # require root node to exist
     root_node = next(expected_node_iter)
-    root = current_controller.get_group_by_name(root_node.prtg_obj.name)
+    try:
+        root = current_controller.get_group_by_name(root_node.prtg_obj.name)
+    except ValueError:
+        # could be a probe
+        root = current_controller.get_probe_by_name(root_node.prtg_obj.name)
     existing_group = root
 
     # (1) create any intermediate (non-root) groups as necessary
