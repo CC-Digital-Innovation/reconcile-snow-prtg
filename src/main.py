@@ -4,10 +4,10 @@ import logging.handlers
 import os
 import secrets
 import sys
-from dataclasses import asdict
 from pathlib import PurePath
 from tempfile import SpooledTemporaryFile
 
+import anytree
 import dotenv
 from fastapi import Depends, FastAPI, Form, HTTPException, status
 from fastapi.security import APIKeyHeader
@@ -19,14 +19,15 @@ from pydantic import SecretStr
 from pysnow.exceptions import MultipleResults, NoResults
 from requests.exceptions import HTTPError
 
+import report
 import sync
 from alt_email import EmailApi, EmailHeaderAuth
 from alt_prtg import PrtgController
-from report import get_add_device_model
+from alt_prtg.models import Device
 from snow import ApiClient as SnowClient
 from snow import SnowController
 from snow.adapter import get_prtg_tree_adapter
-from snow.models import CIBody
+from snow.models import DeviceBody
 
 # load secrets from .env
 # loaded secrets will not overwrite existing environment variables
@@ -136,6 +137,7 @@ def sync_site(company_name: str = Form(..., description='Name of Company'), # El
         site_name: str = Form(..., description='Name of Site (Location)'),
         root_id: int = Form(..., description='ID of root group (not to be confused with Probe Device)'),
         root_is_site: bool = Form(False, description='Set to true if root group is the site'),
+        delete: bool = Form(False, description='If true, delete inactive devices. Defaults to false.'),
         email: str | None = Form(None, description='Sends result to email address.'),
         prtg_client: PrtgClient = Depends(custom_prtg_parameters)):
     logger.info(f'Syncing for {company_name} at {site_name}...')
@@ -175,39 +177,55 @@ def sync_site(company_name: str = Form(..., description='Name of Company'), # El
 
         # Sync trees
         try:
-            devices_added = sync.sync_trees(expected_tree, current_tree, snow_controller, prtg_controller)
+            devices_added, devices_deleted = sync.sync_trees(expected_tree, current_tree, snow_controller, prtg_controller, delete=delete)
         except sync.RootMismatchException as e:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
 
         # No changes found, return
-        if not devices_added:
-            return f'No changes were found for {company_name} at {site_name}.'
+        if not devices_added and not devices_deleted:
+            return f'No devices added or deleted for {company_name} at {site_name}. Existing devices and their fields may have been updated.'
 
         # Send Report
         if email and email_client:
             logger.info('Sending report to email...')
             subject = f'XSAutomate: Synced {company_name} at {site_name}'
             report_name = f'Successfully Synced {company_name} at {site_name}'
-            table_title = [f'Devices Added: {len(devices_added)}']
+            table_title = []
 
             # Create temporary file for report
-            with SpooledTemporaryFile() as report:
-                modeled_added_devices = [get_add_device_model(device, prtg_client) for device in devices_added]
-                added_devices_table = [asdict(device) for device in modeled_added_devices]
-                # requires encoding because json module only dumps in str,
-                # requests module recommends opening in binary mode,
-                # and temp files can only be opened in one mode
-                report.write(json.dumps(added_devices_table).encode())
-                # reset position before sending
-                report.seek(0)
+            with SpooledTemporaryFile() as added, SpooledTemporaryFile() as deleted:
+                files = []
+                if devices_added:
+                    # build added device report table
+                    modeled_added_devices = [report.AddedDeviceModel.from_device(device, prtg_client) for device in devices_added]
+                    added_devices_table = [device._asdict() for device in modeled_added_devices]
+                    # requires encoding because json module only dumps in str,
+                    # requests module recommends opening in binary mode,
+                    # and temp files can only be opened in one mode
+                    added.write(json.dumps(added_devices_table).encode())
+                    # reset position before sending
+                    added.seek(0)
+                    # add table title
+                    table_title.append(f'Devices Added: {len(devices_added)}')
+                    # add file
+                    files.append(('added.json', added))
+
+                if devices_deleted:
+                    # build deleted device report table
+                    modeled_deleted_devices = [report.DeletedDeviceModel.from_device(device) for device in devices_deleted]
+                    deleted_devices_table = [device._asdict() for device in modeled_deleted_devices]
+                    deleted.write(json.dumps(deleted_devices_table).encode())
+                    deleted.seek(0)
+                    table_title.append(f'Devices Deleted: {len(devices_deleted)}')
+                    files.append(('deleted.json', deleted))
                 try:
-                    email_client.email(email, subject, report_name=report_name, table_title=table_title, files=[('report.json', report)])
+                    email_client.email(email, subject, report_name=report_name, table_title=table_title, files=files)
                 except HTTPError as e:
                     logger.exception('Unhandled error from email API: ' + str(e))
                     raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR,
                                         'Sync has successfully completed but an unexpected error occurred when sending the email.')
             logger.info('Successfully sent report to email.')
-        logger.info(f'Successfully added {len(devices_added)} devices to {company_name} at {site_name}.')
+        logger.info(f'Successfully added {len(devices_added)} and deleted {len(devices_deleted)} devices to {company_name} at {site_name}.')
     except HTTPException as e:
         # Reraise already handled exception
         logger.error(e)
@@ -216,12 +234,13 @@ def sync_site(company_name: str = Form(..., description='Name of Company'), # El
         # Catch all other unhandled exceptions
         logger.exception('Unhandled error: ' + str(e))
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, 'An unexpected error occurred.')
-    return f'Successfully added {len(devices_added)} devices to {company_name} at {site_name}.'
+    return f'Successfully added {len(devices_added)} and deleted {len(devices_deleted)} devices to {company_name} at {site_name}.'
 
 @logger.catch
 @app.post('/syncAllSites', dependencies=[Depends(authorize)])
 def sync_all_sites(company_name: str = Form(..., description='Name of Company'), # Ellipsis means it is required
         root_id: int = Form(..., description='ID of root group (not to be confused with Probe Device)'),
+        delete: bool = Form(False, description='If true, delete inactive devices. Defaults to false.'),
         email: str | None = Form(None, description='Sends result to email address.'),
         prtg_client: PrtgClient = Depends(custom_prtg_parameters)):
     logger.info(f'Syncing all sites for {company_name}...')
@@ -250,6 +269,7 @@ def sync_all_sites(company_name: str = Form(..., description='Name of Company'),
         current_tree = prtg_controller.get_tree(group)
 
         devices_added = []
+        devices_deleted = []
         for location in locations:
             config_items = snow_controller.get_config_items(company, location)
             try:
@@ -259,39 +279,57 @@ def sync_all_sites(company_name: str = Form(..., description='Name of Company'),
 
             # Sync trees
             try:
-                devices_added.extend(sync.sync_trees(expected_tree, current_tree, snow_controller, prtg_controller))
-            except sync.RootMismatchException as e:
+                curr_added, curr_deleted = sync.sync_trees(expected_tree, current_tree, snow_controller, prtg_controller, delete=delete)
+            except (sync.RootMismatchException, ValueError) as e:
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+            devices_added.extend(curr_added)
+            devices_deleted.extend(curr_deleted)
 
         # No changes found, return
-        if not devices_added:
-            return f'No changes were found for any location at {company_name}.'
+        if not devices_added and not devices_deleted:
+            return f'No devices added or deleted for {company_name}. Existing devices and their fields may have been updated.'
 
         # Send Report
         if email and email_client:
             logger.info('Sending report to email...')
             subject = f'XSAutomate: Synced all sites for {company_name}'
             report_name = f'Successfully Synced all sites for {company_name}'
-            table_title = [f'Devices Added: {len(devices_added)}']
+            table_title = []
 
             # Create temporary file for report
-            with SpooledTemporaryFile() as report:
-                modeled_added_devices = [get_add_device_model(device, prtg_client) for device in devices_added]
-                added_devices_table = [asdict(device) for device in modeled_added_devices]
-                # requires encoding because json module only dumps in str,
-                # requests module recommends opening in binary mode,
-                # and temp files can only be opened in one mode
-                report.write(json.dumps(added_devices_table).encode())
-                # reset position before sending
-                report.seek(0)
+            with SpooledTemporaryFile() as added, SpooledTemporaryFile() as deleted:
+                files = []
+                if devices_added:
+                    # build added device report table
+                    modeled_added_devices = [report.AddedDeviceModel.from_device(device, prtg_client) for device in devices_added]
+                    added_devices_table = [device._asdict() for device in modeled_added_devices]
+                    # requires encoding because json module only dumps in str,
+                    # requests module recommends opening in binary mode,
+                    # and temp files can only be opened in one mode
+                    added.write(json.dumps(added_devices_table).encode())
+                    # reset position before sending
+                    added.seek(0)
+                    # add table title
+                    table_title.append(f'Devices Added: {len(devices_added)}')
+                    # add file
+                    files.append(('added.json', added))
+
+                if devices_deleted:
+                    # build deleted device report table
+                    modeled_deleted_devices = [report.DeletedDeviceModel.from_device(device) for device in devices_deleted]
+                    deleted_devices_table = [device._asdict() for device in modeled_deleted_devices]
+                    deleted.write(json.dumps(deleted_devices_table).encode())
+                    deleted.seek(0)
+                    table_title.append(f'Devices Deleted: {len(devices_deleted)}')
+                    files.append(('deleted.json', deleted))
                 try:
-                    email_client.email(email, subject, report_name=report_name, table_title=table_title, files=[('report.json', report)])
+                    email_client.email(email, subject, report_name=report_name, table_title=table_title, files=files)
                 except HTTPError as e:
                     logger.exception('Unhandled error from email API: ' + str(e))
                     raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR,
                                         'Sync has successfully completed but an unexpected error occurred when sending the email.')
             logger.info('Successfully sent report to email.')
-        logger.info(f'Successfully added {len(devices_added)} devices to {company_name}.')
+        logger.info(f'Successfully added {len(devices_added)} and deleted {len(devices_deleted)} devices to {company_name}.')
     except HTTPException as e:
         # Reraise already handled exception
         logger.error(e)
@@ -300,21 +338,27 @@ def sync_all_sites(company_name: str = Form(..., description='Name of Company'),
         # Catch all other unhandled exceptions
         logger.exception('Unhandled error: ' + str(e))
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, 'An unexpected error occurred.')
-    return f'Successfully added {len(devices_added)} devices to {company_name}.'
+    return f'Successfully added {len(devices_added)} and deleted {len(devices_deleted)} devices to {company_name}.'
 
 @logger.catch
 @app.patch("/syncDevice")
-def sync_device(ci_body: CIBody):
-    auth = BasicToken(ci_body.prtg_api_key)
-    client = PrtgClient(ci_body.prtg_url, auth)
+def sync_device(device_body: DeviceBody):
+    auth = BasicToken(device_body.prtg_api_key)
+    client = PrtgClient(device_body.prtg_url, auth)
     prtg_controller = PrtgController(client)
 
+    ci = snow_controller.get_config_item(device_body.device_id)
+
+    if ci.company is None or ci.location is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f'Cannot sync device {ci.name}. Missing company or location information in SNOW.')
+    
     # get expected device and its path
-    company = snow_controller.get_company_by_name(ci_body.company_name)
-    location = snow_controller.get_location_by_name(ci_body.location_name)
-    expected_node = get_prtg_tree_adapter(company, location, [ci_body.ci], snow_controller, min_device=MIN_DEVICES)
+    expected_node = get_prtg_tree_adapter(ci.company, ci.location, [ci], snow_controller, min_device=MIN_DEVICES)
+    device_node = anytree.find(expected_node, filter_=lambda x: isinstance(x.prtg_obj, Device))
+    device_path = device_node.path
 
     try:
-        return sync.sync_device(expected_node, prtg_controller, snow_controller)
+        return sync.sync_device(device_path, prtg_controller, snow_controller)
     except ValueError as e:
+        logger.exception(e)
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))

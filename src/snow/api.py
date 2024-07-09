@@ -112,6 +112,12 @@ class ApiClient:
         response = locations.get(query=query)
         return response.all()
 
+    def get_ci(self, ci_id: str):
+        cis = self.client.resource(api_path='/table/cmdb_ci')
+        query = pysnow.QueryBuilder().field('sys_id').equals(ci_id)
+        response = cis.get(query=query)
+        return response.one()
+
     def get_cis_filtered(self, company_name, location_name, category, stage):
         '''Returns a list of all devices filtered by company, location, and category'''
         cis = self.client.resource(api_path='/table/cmdb_ci')

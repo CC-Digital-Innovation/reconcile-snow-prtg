@@ -13,6 +13,28 @@ class PrtgController:
         probe = self.client.get_probe(probe_id)
         return self._get_group(probe)
 
+    def get_probe_by_name(self, name: str) -> Group:
+        """Get a probe by its name.
+        
+        Args:
+            name (str): name of probe
+            
+        Raises:
+            ValueError: no probe found with name or multiple probes found with name
+            
+        Returns:
+            Group: probes will be treated the same as groups
+        """
+        probes = self.client.get_probes_by_name_containing(name)
+        # due to client.get_probes_by_name_containing() accepting probes with name as substring,
+        # manually compare exact match to get probe
+        probes = [probe for probe in probes if probe['name'] == name]
+        if len(probes) == 0:
+            raise ValueError(f'No probe found with name {name}.')
+        if len(probes) > 1:
+            raise ValueError(f'More than one probe found with name {name}.')
+        return self._get_group(probes[0])
+
     def _get_group(self, group: dict) -> Group:
         """Helper function to create a Group from a dict payload returned by the API"""
         tags = set(group['tags'].split())
@@ -250,10 +272,18 @@ class PrtgController:
         if isinstance(obj, Device):
             obj_dict = self.client.get_device(obj.id)
         elif isinstance(obj, Group):
-            obj_dict = self.client.get_group(obj.id)
+            try:
+                obj_dict = self.client.get_group(obj.id)
+            except ObjectNotFound:
+                # object could be a probe
+                obj_dict = self.client.get_probe(obj.id)
         else:
             raise ValueError(f'Unsupported type {type(obj)}')
-        group = self.client.get_group(obj_dict['parentid'])
+        try:
+            group = self.client.get_group(obj_dict['parentid'])
+        except ObjectNotFound:
+            # parent could be a probe
+            group = self.client.get_probe(obj_dict['parentid'])
         return self._get_group(group)
 
     def move_object(self, obj: Device | Group, parent: Group):
@@ -316,6 +346,9 @@ class PrtgController:
 
         # Build tree backward from leaf nodes, i.e. devices
         for device_dict in devices:
+            # ignore probe devices
+            if device_dict['name'] == 'Probe Device':
+                continue
             device = self._get_device(device_dict)
             nodes_to_create = [device]  # ordered list of nodes to create later
             curr_parent_id = device_dict['parentid']
