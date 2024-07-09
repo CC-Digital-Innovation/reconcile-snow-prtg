@@ -11,7 +11,11 @@ class RootMismatchException(Exception):
     "Raise when root does not match"
 
 
-def sync_trees(expected: Node, current: Node, expected_controller: SnowController, current_controller: PrtgController, delete: bool = False) -> tuple[list[Device], list[Device]]:
+def sync_trees(expected: Node,
+               current: Node,
+               expected_controller: SnowController,
+               current_controller: PrtgController,
+               delete: bool = False) -> tuple[list[Device], list[Device]]:
     """Synchronize a given tree: (1) add missing devices, (2) remove deactivated devices (not yet unsupported),
     and (3) update device with mismatched details
 

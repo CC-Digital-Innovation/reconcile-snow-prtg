@@ -89,8 +89,8 @@ class SnowController:
                           ci['model_number'], stage, category, sys_class, link,
                           prtg_id, cc_device, hostname, company, location)
 
-    def get_config_item(self, id: str) -> ConfigItem:
-        return self._get_config_item(self.client.get_ci(id))
+    def get_config_item(self, ci_id: str) -> ConfigItem:
+        return self._get_config_item(self.client.get_ci(ci_id))
 
     def get_config_items(self, company: Company, location: Location) -> list[ConfigItem]:
         cis = self.client.get_cis_by_site(company.name, location.name)
