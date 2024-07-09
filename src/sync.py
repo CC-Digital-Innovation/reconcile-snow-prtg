@@ -33,7 +33,7 @@ def sync_trees(expected: Node,
     expected_devices = anytree.findall(expected, filter_=lambda n: isinstance(n.prtg_obj, Device))
 
     # sync all devices, counting new devices added
-    devices_added = [] 
+    devices_added = []
     current_devices_ids = {node.prtg_obj.id for node in current_devices}
     for node in expected_devices:
         device = sync_device(node.path, current_controller, expected_controller)
