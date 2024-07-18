@@ -143,8 +143,8 @@ def sync_site(company_name: str = Form(..., description='Name of Company'), # El
     logger.info(f'Syncing for {company_name} at {site_name}...')
     logger.debug(f'Company name: {company_name}, Site name: {site_name}, Root ID: {root_id}, Is Root Site: {root_is_site}')
     # clean str inputs
-    company_name = html.escape(company_name)
-    site_name = html.escape(site_name)
+    company_name = html.escape(company_name, quote=False)
+    site_name = html.escape(site_name, quote=False)
     try:
         # Get expected tree
         try:
@@ -246,7 +246,7 @@ def sync_all_sites(company_name: str = Form(..., description='Name of Company'),
     logger.info(f'Syncing all sites for {company_name}...')
     logger.debug(f'Company name: {company_name}, Root ID: {root_id}')
     # clean str input
-    company_name = html.escape(company_name)
+    company_name = html.escape(company_name, quote=False)
     try:
         try:
             company = snow_controller.get_company_by_name(company_name)
