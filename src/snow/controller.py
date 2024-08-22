@@ -17,7 +17,12 @@ class SnowController:
         self.client = client
 
     def _get_company(self, company: dict) -> Company:
-        return Company(company['sys_id'], company['name'].strip(), company['u_abbreviated_name'], FOREMAT_MAP.get(company['u_prtg_format'].lower(), None))
+        default_format = 'ip only'
+        try:
+            name_format = FOREMAT_MAP[company['u_prtg_format'].lower()]
+        except KeyError:
+            name_format = FOREMAT_MAP[default_format]
+        return Company(company['sys_id'], company['name'].strip(), company['u_abbreviated_name'], name_format)
 
     def get_company_by_name(self, name: str) -> Company:
         company = self.client.get_company(name)
