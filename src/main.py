@@ -346,12 +346,13 @@ def sync_device(device_body: DeviceBody):
     auth = BasicToken(device_body.prtg_api_key)
     client = PrtgClient(device_body.prtg_url, auth)
     prtg_controller = PrtgController(client)
-
+    logger.debug(f'PRTG URL: {device_body.prtg_url}')
+    logger.debug(f'Device ID from payload: {device_body.device_id}.')
     ci = snow_controller.get_config_item(device_body.device_id)
 
     if ci.company is None or ci.location is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f'Cannot sync device {ci.name}. Missing company or location information in SNOW.')
-    
+
     # get expected device and its path
     expected_node = get_prtg_tree_adapter(ci.company, ci.location, [ci], snow_controller, min_device=MIN_DEVICES)
     device_node = anytree.find(expected_node, filter_=lambda x: isinstance(x.prtg_obj, Device))
