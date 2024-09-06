@@ -83,25 +83,15 @@ def get_prtg_tree_adapter(company: Company,
                           location: Location,
                           config_items: list[ConfigItem],
                           controller: SnowController,
-                          root_is_site = False,
                           min_device: int = 0) -> Node:
     # Default company's abbreviated name if it exists
     company_name = company.abbreviated_name if company.abbreviated_name else company.name
     # Group format for all groups. Some tools like logging requires a particular format for groups in PRTG.
     group_name_fmt = f'[{company_name}] ' + '{}'
 
-    if not root_is_site:
-        # Initialize root node
-        root_group = PrtgGroupAdapter(f'[{company_name}]')
-        root = Node(root_group)
-
-        # Initialize site node
-        site_group = PrtgGroupAdapter(group_name_fmt.format(location.name))
-        site = Node(site_group, root)
-    else:
-        # Root is site so do not create separate groups
-        root_group = PrtgGroupAdapter(group_name_fmt.format(location.name))
-        root = site = Node(root_group)
+    # instantiate root node with site/location group
+    root_group = PrtgGroupAdapter(group_name_fmt.format(location.name))
+    root = Node(root_group)
 
     # Required number of devices before organizing devices into groups
     num_devices = controller.get_device_count(company, location)
@@ -109,7 +99,7 @@ def get_prtg_tree_adapter(company: Company,
         # Not enough devices. Ignore structure and simply create devices in site group.
         for ci in config_items:
             ci_adapter = PrtgDeviceAdapter.from_ci(ci, company.prtg_device_name_format)
-            Node(ci_adapter, parent=site)
+            Node(ci_adapter, parent=root)
         return root
 
     # Enough devices to organize into groups
@@ -131,7 +121,7 @@ def get_prtg_tree_adapter(company: Company,
     # First group is based on bool attribute is_internal
     if True in pseudo_tree:
         # Internal devices
-        internal_node = Node(PrtgGroupAdapter(group_name_fmt.format('CC Infrastructure')), parent=site)
+        internal_node = Node(PrtgGroupAdapter(group_name_fmt.format('CC Infrastructure')), parent=root)
         # No more groups required for internal devices, simply add devices
         for _, categories in pseudo_tree[True].items():
             for _, cis in categories.items():
@@ -139,7 +129,7 @@ def get_prtg_tree_adapter(company: Company,
                     Node(PrtgDeviceAdapter.from_ci(ci, company.prtg_device_name_format), parent=internal_node)
     if False in pseudo_tree:
         # Customer managed devices
-        external_node = Node(PrtgGroupAdapter(group_name_fmt.format('Customer Managed Infrastructure')), parent=site)
+        external_node = Node(PrtgGroupAdapter(group_name_fmt.format('Customer Managed Infrastructure')), parent=root)
         for stage, categories in pseudo_tree[False].items():
             stage_node = Node(PrtgGroupAdapter(group_name_fmt.format(stage)), parent=external_node)
             for category, cis in categories.items():
