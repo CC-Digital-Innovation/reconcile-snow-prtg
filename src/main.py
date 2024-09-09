@@ -173,6 +173,8 @@ def sync_site(company_name: str = Form(..., description='Name of Company'), # El
             except ObjectNotFound as e:
                 raise HTTPException(status.HTTP_404_NOT_FOUND, str(e))
         logger.info(f'Group with ID {root_id} found in PRTG.')
+        if group.name != expected_tree.prtg_obj.name:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f'Root ID {root_id} returns object named "{group.name}" but does not match expected name "{expected_tree.prtg_obj.name}".')
         current_tree = prtg_controller.get_tree(group)
 
         # Sync trees
