@@ -136,12 +136,11 @@ app = FastAPI(title='Reconcile Snow & PRTG', description=desc)
 def sync_site(company_name: str = Form(..., description='Name of Company'), # Ellipsis means it is required
         site_name: str = Form(..., description='Name of Site (Location)'),
         root_id: int = Form(..., description='ID of root group (not to be confused with Probe Device)'),
-        root_is_site: bool = Form(False, description='Set to true if root group is the site'),
         delete: bool = Form(False, description='If true, delete inactive devices. Defaults to false.'),
         email: str | None = Form(None, description='Sends result to email address.'),
         prtg_client: PrtgClient = Depends(custom_prtg_parameters)):
     logger.info(f'Syncing for {company_name} at {site_name}...')
-    logger.debug(f'Company name: {company_name}, Site name: {site_name}, Root ID: {root_id}, Is Root Site: {root_is_site}')
+    logger.debug(f'Company name: {company_name}, Site name: {site_name}, Root ID: {root_id}')
     # clean str inputs
     company_name = html.escape(company_name, quote=False)
     site_name = html.escape(site_name, quote=False)
@@ -159,7 +158,7 @@ def sync_site(company_name: str = Form(..., description='Name of Company'), # El
         logger.info(f'Location "{site_name}" found in SNOW.')
         config_items = snow_controller.get_config_items(company, location)
         try:
-            expected_tree = get_prtg_tree_adapter(company, location, config_items, snow_controller, root_is_site, MIN_DEVICES)
+            expected_tree = get_prtg_tree_adapter(company, location, config_items, snow_controller, MIN_DEVICES)
         except ValueError as e:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
 
