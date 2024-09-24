@@ -1,4 +1,5 @@
 import pysnow
+from pysnow.exceptions import NoResults
 import requests
 
 
@@ -117,7 +118,10 @@ class ApiClient:
         cis = self.client.resource(api_path='/table/cmdb_ci')
         query = pysnow.QueryBuilder().field('sys_id').equals(ci_id)
         response = cis.get(query=query)
-        return response.one()
+        try:
+            return response.one()
+        except NoResults:
+            raise ValueError(f'No results found for sys_id {ci_id}.')
 
     def get_cis_filtered(self, company_name, location_name, category, stage):
         '''Returns a list of all devices filtered by company, location, and category'''

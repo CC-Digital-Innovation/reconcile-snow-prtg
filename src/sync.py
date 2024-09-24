@@ -36,7 +36,7 @@ def sync_trees(expected: Node,
     devices_added = []
     current_devices_ids = {node.prtg_obj.id for node in current_devices}
     for node in expected_devices:
-        device = sync_device(node.path, current_controller, expected_controller)
+        device = sync_device(node.path, current_controller, expected_controller, root_group=current.prtg_obj)
         if node.prtg_obj.id is None or node.prtg_obj.id not in current_devices_ids:
             devices_added.append(device)
         node.prtg_obj.id = device.id  # update ID before deleting inactive devices
@@ -67,7 +67,7 @@ def sync_trees(expected: Node,
     return devices_added, devices_deleted
 
 
-def sync_device(expected_path: tuple[Node], current_controller: PrtgController, expected_controller: SnowController) -> Device:
+def sync_device(expected_path: tuple[Node], current_controller: PrtgController, expected_controller: SnowController, root_group = None) -> Device:
     """Synchronize a given device: (1) create groups, if necessary, (2) update device details, (3) move device if necessary, 
     and (4) remove last group if empty. If device does not exist, simply create device and any intermediate groups if necessary.
 
@@ -92,12 +92,18 @@ def sync_device(expected_path: tuple[Node], current_controller: PrtgController, 
 
     # require root node to exist
     root_node = next(expected_node_iter)
-    try:
-        root = current_controller.get_group_by_name(root_node.prtg_obj.name)
-    except ValueError:
-        # could be a probe
-        root = current_controller.get_probe_by_name(root_node.prtg_obj.name)
-    existing_group = root
+    if not root_group:
+        try:
+            root = current_controller.get_group_by_name(root_node.prtg_obj.name)
+        except ValueError:
+            # could be a probe
+            try:
+                root = current_controller.get_probe_by_name(root_node.prtg_obj.name)
+            except ValueError:
+                raise RootMismatchException(f'Cannot find expected root group/probe named "{root_node.prtg_obj.name}".')
+        existing_group = root
+    else:
+        existing_group = root_group
 
     # (1) create any intermediate (non-root) groups as necessary
     groups_to_create = []

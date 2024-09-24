@@ -4,5 +4,6 @@ venv/
 **/config.ini
 .history/
 .vscode/
+.idea/
 .env*
 !.env.sample
