@@ -92,7 +92,10 @@ def sync_device(expected_path: tuple[Node], current_controller: PrtgController, 
 
     # require root node to exist
     root_node = next(expected_node_iter)
-    if not root_group:
+    # skip querying root if passed
+    if root_group:
+        root = root_group
+    else:
         try:
             root = current_controller.get_group_by_name(root_node.prtg_obj.name)
         except ValueError:
@@ -101,12 +104,11 @@ def sync_device(expected_path: tuple[Node], current_controller: PrtgController, 
                 root = current_controller.get_probe_by_name(root_node.prtg_obj.name)
             except ValueError:
                 raise RootMismatchException(f'Cannot find expected root group/probe named "{root_node.prtg_obj.name}".')
-        existing_group = root
-    else:
-        existing_group = root_group
 
     # (1) create any intermediate (non-root) groups as necessary
     groups_to_create = []
+    # initialize first group that exists, i.e. root
+    existing_group = root
     # find first missing group, if any
     for node in expected_node_iter:
         groups = current_controller.get_groups_by_name(node.prtg_obj.name)
