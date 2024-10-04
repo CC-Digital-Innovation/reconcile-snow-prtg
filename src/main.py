@@ -228,7 +228,7 @@ def sync_site(company_name: str = Form(..., description='Name of Company'), # El
                                         'Sync has successfully completed but an unexpected error occurred when sending the email.')
             logger.info('Successfully sent report to email.')
         logger.info(f'Successfully added {len(devices_added)} and deleted {len(devices_deleted)} devices to {company_name} at {site_name}.')
-    except HTTPException as e:
+    except (HTTPException, HTTPError) as e:
         # Reraise already handled exception
         logger.error(e)
         raise e
@@ -332,7 +332,7 @@ def sync_all_sites(company_name: str = Form(..., description='Name of Company'),
                                         'Sync has successfully completed but an unexpected error occurred when sending the email.')
             logger.info('Successfully sent report to email.')
         logger.info(f'Successfully added {len(devices_added)} and deleted {len(devices_deleted)} devices to {company_name}.')
-    except HTTPException as e:
+    except (HTTPException, HTTPError) as e:
         # Reraise already handled exception
         logger.error(e)
         raise e
