@@ -9,6 +9,7 @@ from .models import Company, ConfigItem, Country, Location, Manufacturer
 FOREMAT_MAP = {
     'ip only': '{manufacturer.name} {model_number} ({ip_address})',
     'hostname + ip': '{manufacturer.name} {model_number} {host_name} ({ip_address})'
+    'label + ip' '{manufacturer.name} {model_number} {label} ({ip_address})'
 }
 
 
@@ -90,9 +91,17 @@ class SnowController:
             else:
                 location = self._get_location(location_dict)
 
+        try:
+            label = ci['u_label'].lower()
+        except AttributeError:
+            if ci['u_label'] is None:
+                label = ''
+            else:
+                raise TypeError('Expected type str for label field.')
+
         return ConfigItem(ci['sys_id'], ci['name'], ip_address, manufacturer,
                           ci['model_number'], stage, category, sys_class, link,
-                          prtg_id, cc_device, hostname, company, location)
+                          prtg_id, cc_device, hostname, company, location, label)
 
     def get_config_item(self, ci_id: str) -> ConfigItem:
         return self._get_config_item(self.client.get_ci(ci_id))

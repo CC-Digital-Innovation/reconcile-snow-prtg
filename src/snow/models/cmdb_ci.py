@@ -30,6 +30,7 @@ class ConfigItem:
     host_name: str | None = None
     company: Company | None = None
     location: Location | None = None
+    label: str = ''
 
 
 class DeviceBody(BaseModel):
