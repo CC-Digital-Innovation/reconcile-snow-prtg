@@ -9,8 +9,8 @@ from .models import Company, ConfigItem, Country, Location, Manufacturer
 # map SNOW choice list names to formats
 FOREMAT_MAP = {
     'ip only': '{manufacturer.name} {model_number} ({ip_address})',
-    'hostname + ip': '{manufacturer.name} {model_number} {host_name} ({ip_address})'
-    'label + ip' '{manufacturer.name} {model_number} {label} ({ip_address})'
+    'hostname + ip': '{manufacturer.name} {model_number} {host_name} ({ip_address})',
+    'label + ip': '{manufacturer.name} {model_number} {label} ({ip_address})'
 }
 
 
@@ -20,10 +20,10 @@ class SnowController:
 
     def _get_company(self, company: dict) -> Company:
         default_format = 'ip only'
-        logger.debug(company['u_prtg_format'])
         try:
             name_format = FOREMAT_MAP[company['u_prtg_format'].lower()]
         except KeyError:
+            logger.warning('Name format not recognized, setting as default')
             name_format = FOREMAT_MAP[default_format]
         return Company(company['sys_id'], company['name'].strip(), company['u_abbreviated_name'], name_format)
 
