@@ -1,6 +1,7 @@
 from ipaddress import AddressValueError, IPv4Address
 
 import requests
+from loguru import logger
 
 from .models import Company, ConfigItem, Country, Location, Manufacturer
 
@@ -19,6 +20,7 @@ class SnowController:
 
     def _get_company(self, company: dict) -> Company:
         default_format = 'ip only'
+        logger.debug(company['u_prtg_format'])
         try:
             name_format = FOREMAT_MAP[company['u_prtg_format'].lower()]
         except KeyError:
