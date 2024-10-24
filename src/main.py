@@ -4,6 +4,7 @@ import logging.handlers
 import os
 import secrets
 import sys
+import time
 from pathlib import PurePath
 from tempfile import SpooledTemporaryFile
 
@@ -139,7 +140,9 @@ def sync_site(company_name: str = Form(..., description='Name of Company'), # El
         root_is_site: bool = Form(False, description='Set to true if root group is the site'),
         delete: bool = Form(False, description='If true, delete inactive devices. Defaults to false.'),
         email: str | None = Form(None, description='Sends result to email address.'),
-        prtg_client: PrtgClient = Depends(custom_prtg_parameters)):
+        prtg_client: PrtgClient = Depends(custom_prtg_parameters),
+        request_id: int | None = Form(None, description='Optional ID to return as response.')):
+    start_time = time.time()
     logger.info(f'Syncing for {company_name} at {site_name}...')
     logger.debug(f'Company name: {company_name}, Site name: {site_name}, Root ID: {root_id}, Is Root Site: {root_is_site}')
     # clean str inputs
@@ -185,7 +188,11 @@ def sync_site(company_name: str = Form(..., description='Name of Company'), # El
 
         # No changes found, return
         if not devices_added and not devices_deleted:
-            return f'No devices added or deleted for {company_name} at {site_name}. Existing devices and their fields may have been updated.'
+            return {
+                'id': request_id,
+                'detail': f'No devices added or deleted for {company_name} at {site_name}. Existing devices and their fields may have been updated.',
+                'elapsed_time': '{:.2f}'.format(time.time() - start_time)
+            }
 
         # Send Report
         if email and email_client:
@@ -224,8 +231,11 @@ def sync_site(company_name: str = Form(..., description='Name of Company'), # El
                     email_client.email(email, subject, report_name=report_name, table_title=table_title, files=files)
                 except HTTPError as e:
                     logger.exception('Unhandled error from email API: ' + str(e))
-                    raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR,
-                                        'Sync has successfully completed but an unexpected error occurred when sending the email.')
+                    return {
+                        'id': request_id,
+                        'detail': f'Successfully added {len(devices_added)} and deleted {len(devices_deleted)} devices to {company_name} at {site_name}, but an unexpected error occurred when sending the email.',
+                        'elapsed_time': '{:.2f}'.format(time.time() - start_time)
+                    }
             logger.info('Successfully sent report to email.')
         logger.info(f'Successfully added {len(devices_added)} and deleted {len(devices_deleted)} devices to {company_name} at {site_name}.')
     except (HTTPException, HTTPError) as e:
@@ -236,7 +246,11 @@ def sync_site(company_name: str = Form(..., description='Name of Company'), # El
         # Catch all other unhandled exceptions
         logger.exception('Unhandled error: ' + str(e))
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, 'An unexpected error occurred.')
-    return f'Successfully added {len(devices_added)} and deleted {len(devices_deleted)} devices to {company_name} at {site_name}.'
+    return {
+        'id': request_id,
+        'detail': f'Successfully added {len(devices_added)} and deleted {len(devices_deleted)} devices to {company_name} at {site_name}.',
+        'elapsed_time': '{:.2f}'.format(time.time() - start_time)
+    }
 
 @logger.catch
 @app.post('/syncAllSites', dependencies=[Depends(authorize)])
@@ -344,7 +358,8 @@ def sync_all_sites(company_name: str = Form(..., description='Name of Company'),
 
 @logger.catch
 @app.patch("/syncDevice")
-def sync_device(device_body: DeviceBody):
+def sync_device(device_body: DeviceBody, request_id: int | None = None):
+    start_time = time.time()
     auth = BasicToken(device_body.prtg_api_key)
     client = PrtgClient(device_body.prtg_url, auth)
     prtg_controller = PrtgController(client)
@@ -361,7 +376,11 @@ def sync_device(device_body: DeviceBody):
     device_path = device_node.path
 
     try:
-        return sync.sync_device(device_path, prtg_controller, snow_controller)
+        return {
+            'id': request_id,
+            'detail': sync.sync_device(device_path, prtg_controller, snow_controller),
+            'elapsed_time': '{:.2f}'.format(time.time() - start_time)
+        }
     except ValueError as e:
         logger.exception(e)
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
