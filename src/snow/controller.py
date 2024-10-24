@@ -6,26 +6,12 @@ from loguru import logger
 from .models import Company, ConfigItem, Country, Location, Manufacturer
 
 
-# map SNOW choice list names to formats
-FOREMAT_MAP = {
-    'ip only': '{manufacturer.name} {model_number} ({ip_address})',
-    'hostname + ip': '{manufacturer.name} {model_number} {host_name} ({ip_address})',
-    'label + ip': '{manufacturer.name} {model_number} {label} ({ip_address})'
-}
-
-
 class SnowController:
     def __init__(self, client):
         self.client = client
 
     def _get_company(self, company: dict) -> Company:
-        default_format = 'ip only'
-        try:
-            name_format = FOREMAT_MAP[company['u_prtg_format'].lower()]
-        except KeyError:
-            logger.warning('Name format not recognized, setting as default')
-            name_format = FOREMAT_MAP[default_format]
-        return Company(company['sys_id'], company['name'].strip(), company['u_abbreviated_name'], name_format)
+        return Company(company['sys_id'], company['name'].strip(), company['u_abbreviated_name'], company['u_prtg_format'].lower())
 
     def get_company_by_name(self, name: str) -> Company:
         company = self.client.get_company(name)
