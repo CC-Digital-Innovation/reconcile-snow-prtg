@@ -10,7 +10,7 @@ from tempfile import SpooledTemporaryFile
 
 import anytree
 import dotenv
-from fastapi import Depends, FastAPI, Form, HTTPException, status
+from fastapi import BackgroundTasks, Depends, FastAPI, Form, HTTPException, status
 from fastapi.security import APIKeyHeader
 from loguru import logger
 from prtg import ApiClient as PrtgClient
@@ -133,8 +133,9 @@ desc = f'Defaults to the "{PRTG_BASE_URL.split("://")[1]}" instance. In order to
 app = FastAPI(title='Reconcile Snow & PRTG', description=desc)
 
 @logger.catch
-@app.post('/syncSite', dependencies=[Depends(authorize)])
-def sync_site(company_name: str = Form(..., description='Name of Company'), # Ellipsis means it is required
+@app.post('/syncSite', dependencies=[Depends(authorize)], status_code=status.HTTP_202_ACCEPTED)
+def sync_site(background_tasks: BackgroundTasks,
+        company_name: str = Form(..., description='Name of Company'), # Ellipsis means it is required
         site_name: str = Form(..., description='Name of Site (Location)'),
         root_id: int = Form(..., description='ID of root group (not to be confused with Probe Device)'),
         root_is_site: bool = Form(False, description='Set to true if root group is the site'),
@@ -142,115 +143,13 @@ def sync_site(company_name: str = Form(..., description='Name of Company'), # El
         email: str | None = Form(None, description='Sends result to email address.'),
         prtg_client: PrtgClient = Depends(custom_prtg_parameters),
         request_id: int | None = Form(None, description='Optional ID to return as response.')):
-    start_time = time.time()
     logger.info(f'Syncing for {company_name} at {site_name}...')
     logger.debug(f'Company name: {company_name}, Site name: {site_name}, Root ID: {root_id}, Is Root Site: {root_is_site}')
     # clean str inputs
     company_name = html.escape(company_name, quote=False)
     site_name = html.escape(site_name, quote=False)
-    try:
-        # Get expected tree
-        try:
-            company = snow_controller.get_company_by_name(company_name)
-        except (NoResults, MultipleResults) as e:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e) + f' for company {company_name}')
-        logger.info(f'Company "{company_name} found in SNOW."')
-        try:
-            location = snow_controller.get_location_by_name(site_name)
-        except (NoResults, MultipleResults) as e:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e) + f' for location {site_name}')
-        logger.info(f'Location "{site_name}" found in SNOW.')
-        config_items = snow_controller.get_config_items(company, location)
-        try:
-            expected_tree = get_prtg_tree_adapter(company, location, config_items, snow_controller, root_is_site, MIN_DEVICES)
-        except ValueError as e:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
-
-        prtg_controller = PrtgController(prtg_client)
-        # Get current tree
-        try:
-            group = prtg_controller.get_probe(root_id)
-        except ObjectNotFound:
-            try:
-                group = prtg_controller.get_group(root_id)
-            except ObjectNotFound as e:
-                raise HTTPException(status.HTTP_404_NOT_FOUND, str(e))
-        logger.info(f'Group with ID {root_id} found in PRTG.')
-        if group.name != expected_tree.prtg_obj.name:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, f'Root ID {root_id} returns object named "{group.name}" but does not match expected name "{expected_tree.prtg_obj.name}".')
-        current_tree = prtg_controller.get_tree(group)
-
-        # Sync trees
-        try:
-            devices_added, devices_deleted = sync.sync_trees(expected_tree, current_tree, snow_controller, prtg_controller, delete=delete)
-        except sync.RootMismatchException as e:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
-
-        # No changes found, return
-        if not devices_added and not devices_deleted:
-            return {
-                'id': request_id,
-                'detail': f'No devices added or deleted for {company_name} at {site_name}. Existing devices and their fields may have been updated.',
-                'elapsed_time': '{:.2f}'.format(time.time() - start_time)
-            }
-
-        # Send Report
-        if email and email_client:
-            logger.info('Sending report to email...')
-            subject = f'XSAutomate: Synced {company_name} at {site_name}'
-            report_name = f'Successfully Synced {company_name} at {site_name}'
-            table_title = []
-
-            # Create temporary file for report
-            with SpooledTemporaryFile() as added, SpooledTemporaryFile() as deleted:
-                files = []
-                if devices_added:
-                    # build added device report table
-                    modeled_added_devices = [report.AddedDeviceModel.from_device(device, prtg_client) for device in devices_added]
-                    added_devices_table = [device._asdict() for device in modeled_added_devices]
-                    # requires encoding because json module only dumps in str,
-                    # requests module recommends opening in binary mode,
-                    # and temp files can only be opened in one mode
-                    added.write(json.dumps(added_devices_table).encode())
-                    # reset position before sending
-                    added.seek(0)
-                    # add table title
-                    table_title.append(f'Devices Added: {len(devices_added)}')
-                    # add file
-                    files.append(('added.json', added))
-
-                if devices_deleted:
-                    # build deleted device report table
-                    modeled_deleted_devices = [report.DeletedDeviceModel.from_device(device) for device in devices_deleted]
-                    deleted_devices_table = [device._asdict() for device in modeled_deleted_devices]
-                    deleted.write(json.dumps(deleted_devices_table).encode())
-                    deleted.seek(0)
-                    table_title.append(f'Devices Deleted: {len(devices_deleted)}')
-                    files.append(('deleted.json', deleted))
-                try:
-                    email_client.email(email, subject, report_name=report_name, table_title=table_title, files=files)
-                except HTTPError as e:
-                    logger.exception('Unhandled error from email API: ' + str(e))
-                    return {
-                        'id': request_id,
-                        'detail': f'Successfully added {len(devices_added)} and deleted {len(devices_deleted)} devices to {company_name} at {site_name}, but an unexpected error occurred when sending the email.',
-                        'elapsed_time': '{:.2f}'.format(time.time() - start_time)
-                    }
-            logger.info('Successfully sent report to email.')
-        logger.info(f'Successfully added {len(devices_added)} and deleted {len(devices_deleted)} devices to {company_name} at {site_name}.')
-    except (HTTPException, HTTPError) as e:
-        # Reraise already handled exception
-        logger.error(e)
-        raise e
-    except Exception as e:
-        # Catch all other unhandled exceptions
-        logger.exception('Unhandled error: ' + str(e))
-        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, 'An unexpected error occurred.')
-    return {
-        'id': request_id,
-        'detail': f'Successfully added {len(devices_added)} and deleted {len(devices_deleted)} devices to {company_name} at {site_name}.',
-        'elapsed_time': '{:.2f}'.format(time.time() - start_time)
-    }
+    # run long sync process and email in background
+    background_tasks.add_task(sync_site_and_email, company_name, site_name, root_id, root_is_site, delete, email, prtg_client, request_id)
 
 @logger.catch
 @app.post('/syncAllSites', dependencies=[Depends(authorize)])
@@ -357,8 +256,120 @@ def sync_all_sites(company_name: str = Form(..., description='Name of Company'),
     return f'Successfully added {len(devices_added)} and deleted {len(devices_deleted)} devices to {company_name}.'
 
 @logger.catch
-@app.patch("/syncDevice")
-def sync_device(device_body: DeviceBody, request_id: int | None = None):
+@app.patch("/syncDevice", status_code=status.HTTP_202_ACCEPTED)
+def sync_device(device_body: DeviceBody, background_tasks: BackgroundTasks, request_id: int | None = None):
+    # run long sync process and email in background
+    background_tasks.add_task(sync_device_and_email, device_body, request_id)
+
+def sync_site_and_email(company_name, site_name, root_id, root_is_site, delete, email, prtg_client, request_id):
+    """to be ran using FastAPI's BackgroundTasks"""
+    start_time = time.time()
+    try:
+        # Get expected tree
+        try:
+            company = snow_controller.get_company_by_name(company_name)
+        except (NoResults, MultipleResults) as e:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e) + f' for company {company_name}')
+        logger.info(f'Company "{company_name} found in SNOW."')
+        try:
+            location = snow_controller.get_location_by_name(site_name)
+        except (NoResults, MultipleResults) as e:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e) + f' for location {site_name}')
+        logger.info(f'Location "{site_name}" found in SNOW.')
+        config_items = snow_controller.get_config_items(company, location)
+        try:
+            expected_tree = get_prtg_tree_adapter(company, location, config_items, snow_controller, root_is_site, MIN_DEVICES)
+        except ValueError as e:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+
+        prtg_controller = PrtgController(prtg_client)
+        # Get current tree
+        try:
+            group = prtg_controller.get_probe(root_id)
+        except ObjectNotFound:
+            try:
+                group = prtg_controller.get_group(root_id)
+            except ObjectNotFound as e:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, str(e))
+        logger.info(f'Group with ID {root_id} found in PRTG.')
+        if group.name != expected_tree.prtg_obj.name:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f'Root ID {root_id} returns object named "{group.name}" but does not match expected name "{expected_tree.prtg_obj.name}".')
+        current_tree = prtg_controller.get_tree(group)
+
+        # Sync trees
+        try:
+            devices_added, devices_deleted = sync.sync_trees(expected_tree, current_tree, snow_controller, prtg_controller, delete=delete)
+        except sync.RootMismatchException as e:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+
+        # No changes found, return
+        if not devices_added and not devices_deleted:
+            return {
+                'id': request_id,
+                'detail': f'No devices added or deleted for {company_name} at {site_name}. Existing devices and their fields may have been updated.',
+                'elapsed_time': '{:.2f}'.format(time.time() - start_time)
+            }
+
+        # Send Report
+        if email and email_client:
+            logger.info('Sending report to email...')
+            subject = f'XSAutomate: Synced {company_name} at {site_name}'
+            report_name = f'Successfully Synced {company_name} at {site_name}'
+            table_title = []
+
+            # Create temporary file for report
+            with SpooledTemporaryFile() as added, SpooledTemporaryFile() as deleted:
+                files = []
+                if devices_added:
+                    # build added device report table
+                    modeled_added_devices = [report.AddedDeviceModel.from_device(device, prtg_client) for device in devices_added]
+                    added_devices_table = [device._asdict() for device in modeled_added_devices]
+                    # requires encoding because json module only dumps in str,
+                    # requests module recommends opening in binary mode,
+                    # and temp files can only be opened in one mode
+                    added.write(json.dumps(added_devices_table).encode())
+                    # reset position before sending
+                    added.seek(0)
+                    # add table title
+                    table_title.append(f'Devices Added: {len(devices_added)}')
+                    # add file
+                    files.append(('added.json', added))
+
+                if devices_deleted:
+                    # build deleted device report table
+                    modeled_deleted_devices = [report.DeletedDeviceModel.from_device(device) for device in devices_deleted]
+                    deleted_devices_table = [device._asdict() for device in modeled_deleted_devices]
+                    deleted.write(json.dumps(deleted_devices_table).encode())
+                    deleted.seek(0)
+                    table_title.append(f'Devices Deleted: {len(devices_deleted)}')
+                    files.append(('deleted.json', deleted))
+                try:
+                    email_client.email(email, subject, report_name=report_name, table_title=table_title, files=files)
+                except HTTPError as e:
+                    logger.exception('Unhandled error from email API: ' + str(e))
+                    return {
+                        'id': request_id,
+                        'detail': f'Successfully added {len(devices_added)} and deleted {len(devices_deleted)} devices to {company_name} at {site_name}, but an unexpected error occurred when sending the email.',
+                        'elapsed_time': '{:.2f}'.format(time.time() - start_time)
+                    }
+            logger.info('Successfully sent report to email.')
+        logger.info(f'Successfully added {len(devices_added)} and deleted {len(devices_deleted)} devices to {company_name} at {site_name}.')
+    except (HTTPException, HTTPError) as e:
+        # Reraise already handled exception
+        logger.error(e)
+        raise e
+    except Exception as e:
+        # Catch all other unhandled exceptions
+        logger.exception('Unhandled error: ' + str(e))
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, 'An unexpected error occurred.')
+    return {
+        'id': request_id,
+        'detail': f'Successfully added {len(devices_added)} and deleted {len(devices_deleted)} devices to {company_name} at {site_name}.',
+        'elapsed_time': '{:.2f}'.format(time.time() - start_time)
+    }
+
+def sync_device_and_email(device_body, request_id):
+    """to be ran using FastAPI's BackgroundTasks"""
     start_time = time.time()
     auth = BasicToken(device_body.prtg_api_key)
     client = PrtgClient(device_body.prtg_url, auth)
