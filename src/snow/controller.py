@@ -106,4 +106,4 @@ class SnowController:
         return self.client.get_cis_count(company.name, location.name)
 
     def post_log(self, log: Log):
-        return self.client.post_log(log.request_id, log.state, log.response_msg)
+        return self.client.post_log(log.request_id, log.state.value, log.response_msg)
