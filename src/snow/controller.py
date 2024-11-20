@@ -3,7 +3,7 @@ from ipaddress import AddressValueError, IPv4Address
 import requests
 from loguru import logger
 
-from .models import Company, ConfigItem, Country, Location, Manufacturer
+from .models import Company, ConfigItem, Country, Location, Log, Manufacturer
 
 
 class SnowController:
@@ -104,3 +104,6 @@ class SnowController:
 
     def get_device_count(self, company: Company, location: Location) -> int:
         return self.client.get_cis_count(company.name, location.name)
+
+    def post_log(self, log: Log):
+        return self.client.post_log(log.request_id, log.state.value, log.response_msg)
