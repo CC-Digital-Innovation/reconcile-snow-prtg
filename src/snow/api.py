@@ -1,6 +1,7 @@
 import pysnow
-from pysnow.exceptions import NoResults
 import requests
+from loguru import logger
+from pysnow.exceptions import NoResults
 
 
 def get_active_ci_query() -> pysnow.QueryBuilder:
@@ -212,5 +213,11 @@ class ApiClient:
             'response_msg': response_msg
         }
         response = requests.post(url, json=body, auth=auth)
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except requests.HTTPError as e:
+            # log unhandled errors and reraise
+            logger.error(e)
+            logger.error(f'Response text: {response.text}')
+            raise e
         return response.json()
