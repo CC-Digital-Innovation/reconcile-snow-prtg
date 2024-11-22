@@ -141,7 +141,7 @@ def sync_site(background_tasks: BackgroundTasks,
         delete: bool = Form(False, description='If true, delete inactive devices. Defaults to false.'),
         email: str | None = Form(None, description='Sends result to email address.'),
         prtg_client: PrtgClient = Depends(custom_prtg_parameters),
-        request_id: int | None = Form(None, description='Optional ID to return as response.')):
+        request_id: str | None = Form(None, description='Optional ID to return as response.')):
     logger.info(f'Syncing for {company_name} at {site_name}...')
     logger.debug(f'Company name: {company_name}, Site name: {site_name}, Root ID: {root_id}, Is Root Site: {root_is_site}')
     # clean str inputs
@@ -256,7 +256,7 @@ def sync_all_sites(company_name: str = Form(..., description='Name of Company'),
 
 @logger.catch
 @app.patch("/syncDevice", status_code=status.HTTP_202_ACCEPTED)
-def sync_device(device_body: DeviceBody, background_tasks: BackgroundTasks, request_id: int | None = None):
+def sync_device(device_body: DeviceBody, background_tasks: BackgroundTasks, request_id: str | None = None):
     # run long sync process and email in background
     background_tasks.add_task(sync_device_task, device_body, request_id)
 
