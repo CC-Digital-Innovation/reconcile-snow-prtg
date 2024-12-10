@@ -256,9 +256,9 @@ def sync_all_sites(company_name: str = Form(..., description='Name of Company'),
 
 @logger.catch
 @app.patch("/syncDevice", status_code=status.HTTP_202_ACCEPTED)
-def sync_device(device_body: DeviceBody, background_tasks: BackgroundTasks, request_id: str | None = None):
+def sync_device(device_body: DeviceBody, background_tasks: BackgroundTasks):
     # run long sync process and email in background
-    background_tasks.add_task(sync_device_task, device_body, request_id)
+    background_tasks.add_task(sync_device_task, device_body)
 
 def log_error_console_and_snow(request_id: str, error_msg: str):
     logger.error(error_msg)
@@ -370,7 +370,7 @@ def sync_site_and_email_task(company_name, site_name, root_id, root_is_site, del
         success_log = Log(request_id, State.SUCCESS, f'Successfully added {len(devices_added)} and deleted {len(devices_deleted)} devices to {company_name} at {site_name}.')
         snow_controller.post_log(success_log)
 
-def sync_device_task(device_body, request_id):
+def sync_device_task(device_body):
     """to be ran using FastAPI's BackgroundTasks"""
     auth = BasicToken(device_body.prtg_api_key)
     client = PrtgClient(device_body.prtg_url, auth)
@@ -380,7 +380,7 @@ def sync_device_task(device_body, request_id):
     ci = snow_controller.get_config_item(device_body.device_id)
 
     if ci.company is None or ci.location is None:
-        log_error_console_and_snow(request_id, f'Cannot sync device {ci.name}. Missing company or location information in SNOW.')
+        log_error_console_and_snow(device_body.request_id, f'Cannot sync device {ci.name}. Missing company or location information in SNOW.')
         return  # simply return since it's a background task
 
     # get expected device and its path
@@ -391,8 +391,8 @@ def sync_device_task(device_body, request_id):
     try:
         device = sync.sync_device(device_path, prtg_controller, snow_controller)
     except ValueError as e:
-        log_error_console_and_snow(request_id, str(e))
+        log_error_console_and_snow(device_body.request_id, str(e))
         return
-    if request_id is not None:
-        success_log = Log(request_id, State.SUCCESS, f'Successfully created/updated {device.name} with ID {device.id}.')
+    if device_body.request_id is not None:
+        success_log = Log(device_body.request_id, State.SUCCESS, f'Successfully created/updated {device.name} with ID {device.id}.')
         snow_controller.post_log(success_log)
