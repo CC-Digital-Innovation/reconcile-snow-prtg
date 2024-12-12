@@ -1,6 +1,7 @@
 import pysnow
-from pysnow.exceptions import NoResults
 import requests
+from loguru import logger
+from pysnow.exceptions import NoResults
 
 
 def get_active_ci_query() -> pysnow.QueryBuilder:
@@ -201,3 +202,22 @@ class ApiClient:
         )
         response = ci_aggregate.get(query=query)
         return int(response.one()['stats']['count'])
+
+    def post_log(self, request_id, state, response_msg):
+        protocol = 'https' if self.ssl else 'http'
+        url = f'{protocol}://{self.instance}.service-now.com/api/fuss2/prtg_outbound/log'
+        auth = (self._username, self._password)
+        body = {
+            'request_id': request_id,
+            'state': state,
+            'response_msg': response_msg
+        }
+        response = requests.post(url, json=body, auth=auth)
+        try:
+            response.raise_for_status()
+        except requests.HTTPError as e:
+            # log unhandled errors and reraise
+            logger.error(e)
+            logger.error(f'Response text: {response.text}')
+            raise e
+        return response.json()

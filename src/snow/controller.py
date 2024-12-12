@@ -1,15 +1,9 @@
 from ipaddress import AddressValueError, IPv4Address
 
 import requests
+from loguru import logger
 
-from .models import Company, ConfigItem, Country, Location, Manufacturer
-
-
-# map SNOW choice list names to formats
-FOREMAT_MAP = {
-    'ip only': '{manufacturer.name} {model_number} ({ip_address})',
-    'hostname + ip': '{manufacturer.name} {model_number} {host_name} ({ip_address})'
-}
+from .models import Company, ConfigItem, Country, Location, Log, Manufacturer
 
 
 class SnowController:
@@ -17,12 +11,7 @@ class SnowController:
         self.client = client
 
     def _get_company(self, company: dict) -> Company:
-        default_format = 'ip only'
-        try:
-            name_format = FOREMAT_MAP[company['u_prtg_format'].lower()]
-        except KeyError:
-            name_format = FOREMAT_MAP[default_format]
-        return Company(company['sys_id'], company['name'].strip(), company['u_abbreviated_name'], name_format)
+        return Company(company['sys_id'], company['name'].strip(), company['u_abbreviated_name'], company['u_prtg_format'].lower())
 
     def get_company_by_name(self, name: str) -> Company:
         company = self.client.get_company(name)
@@ -90,9 +79,17 @@ class SnowController:
             else:
                 location = self._get_location(location_dict)
 
+        try:
+            label = ci['u_label'].lower()
+        except AttributeError:
+            if ci['u_label'] is None:
+                label = ''
+            else:
+                raise TypeError('Expected type str for label field.')
+
         return ConfigItem(ci['sys_id'], ci['name'], ip_address, manufacturer,
                           ci['model_number'], stage, category, sys_class, link,
-                          prtg_id, cc_device, hostname, company, location)
+                          prtg_id, cc_device, hostname, company, location, label)
 
     def get_config_item(self, ci_id: str) -> ConfigItem:
         return self._get_config_item(self.client.get_ci(ci_id))
@@ -107,3 +104,6 @@ class SnowController:
 
     def get_device_count(self, company: Company, location: Location) -> int:
         return self.client.get_cis_count(company.name, location.name)
+
+    def post_log(self, log: Log):
+        return self.client.post_log(log.request_id, log.state.value, log.response_msg)

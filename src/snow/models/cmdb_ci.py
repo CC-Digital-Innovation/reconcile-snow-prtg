@@ -30,6 +30,7 @@ class ConfigItem:
     host_name: str | None = None
     company: Company | None = None
     location: Location | None = None
+    label: str = ''
 
 
 class DeviceBody(BaseModel):
@@ -37,3 +38,4 @@ class DeviceBody(BaseModel):
     prtg_url: str
     prtg_api_key: str
     device_id: str
+    request_id: str | None = None

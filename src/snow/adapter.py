@@ -4,6 +4,7 @@ from functools import reduce, partial
 from operator import getitem
 from string import Formatter
 
+from loguru import logger
 from prtg import Icon
 
 from .models import ConfigItem, Company, Location
@@ -11,28 +12,41 @@ from alt_prtg.models import Device, Group, Status, Node
 from snow import SnowController
 
 
+# map SNOW choice list names to formats
+FORMAT_MAP = {
+    'ip only': '{manufacturer.name} {model_number} ({ip_address})',
+    'hostname + ip': '{manufacturer.name} {model_number} {host_name} ({ip_address})',
+    'label + ip': '{manufacturer.name} {model_number} {label} ({ip_address})'
+}
+
 def _check_required_fields(ci: ConfigItem, name_format: str):
+    # collect missing fields
+    missing_fields = []
     for _, key_name, _, _ in Formatter().parse(name_format):
         if key_name is None:
             continue
         # reduce to get value of nested attributes
         value = reduce(getattr, key_name.split('.'), ci)
-        # raise if value is missing
         if value is None or value == '':
-            raise ValueError(f'Configuration item "{ci.name}" is missing required attribute "{key_name}".')
-
+            missing_fields.append(key_name)
+    return missing_fields
 
 @dataclass(eq=False, slots=True)
 class PrtgDeviceAdapter(Device):
     """Adapter for ServiceNow configuration items to PRTG devices. Recommended 
     to use the classmethod from_ci to instantiate this class."""
     ci: ConfigItem
+    default_name_format_key = 'ip only'
 
     @classmethod
-    def from_ci(cls, ci: ConfigItem, name_format: str | None = None):
-        if name_format:
+    def from_ci(cls, ci: ConfigItem, format_key: str | None = None):
+        if format_key:
+            name_format = FORMAT_MAP[format_key]
             # check for required attributes
-            _check_required_fields(ci, name_format)
+            missing_fields = _check_required_fields(ci, name_format)
+            if missing_fields:
+                logger.warning(f'Missing required fields for name format: {", ".join(missing_fields)} for {ci.name}. Falling back to "{cls.default_name_format_key}" name format.')
+                name_format = FORMAT_MAP[cls.default_name_format_key]
             # pass shallow copy of ci to work with dotted attribute format, e.g., manufacturer.name
             name = name_format.format_map({field.name: getattr(ci, field.name) for field in fields(ci)})
         else:
