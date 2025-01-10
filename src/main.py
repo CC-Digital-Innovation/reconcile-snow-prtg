@@ -390,7 +390,7 @@ def sync_device_task(device_body):
 
     try:
         device = sync.sync_device(device_path, prtg_controller, snow_controller)
-    except ValueError as e:
+    except (ValueError, sync.RootMismatchException) as e:
         log_error_console_and_snow(device_body.request_id, str(e))
         return
     if device_body.request_id is not None:
