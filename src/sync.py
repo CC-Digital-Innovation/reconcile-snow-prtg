@@ -3,7 +3,7 @@ from loguru import logger
 from prtg.exception import ObjectNotFound
 
 from alt_prtg import PrtgController
-from alt_prtg.models import Device, Node
+from alt_prtg.models import Device, Group, Node
 from snow import SnowController
 
 
@@ -67,14 +67,20 @@ def sync_trees(expected: Node,
     return devices_added, devices_deleted
 
 
-def sync_device(expected_path: tuple[Node], current_controller: PrtgController, expected_controller: SnowController, root_group = None) -> Device:
-    """Synchronize a given device: (1) create groups, if necessary, (2) update device details, (3) move device if necessary, 
-    and (4) remove last group if empty. If device does not exist, simply create device and any intermediate groups if necessary.
+def sync_device(expected_path: tuple[Node],
+                current_controller: PrtgController,
+                expected_controller: SnowController,
+                root_group: Group | None = None) -> Device:
+    """Synchronize a given device: (1) create groups, if necessary, (2) update 
+    device details, (3) move device if necessary, and (4) remove last group if 
+    empty. If device does not exist, simply create device and any intermediate 
+    groups if necessary.
 
     Args:
         expected (tuple[Node]): tuple of nodes representing path to device and its updated details
         current_controller (PrtgController): controller to interact with platform to sync
         expected_controller (SnowController): controller to update device ID field, only needed if not already created
+        root_group (Group | None): optionally pass a root group to avoid searching for it. Defaults to None.
 
     Raises:
         ValueError: root group cannot be found
