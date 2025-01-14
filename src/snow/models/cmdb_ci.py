@@ -38,4 +38,5 @@ class DeviceBody(BaseModel):
     prtg_url: str
     prtg_api_key: str
     device_id: str
+    root_id: int
     request_id: str | None = None
