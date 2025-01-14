@@ -389,7 +389,7 @@ def sync_device_task(device_body: DeviceBody):
     except ObjectNotFound:
         try:
             root = prtg_controller.get_group(device_body.root_id)
-        except ObjectNotFound as e:
+        except ObjectNotFound:
             log_error_console_and_snow(device_body.request_id, f'Cannot find root probe/group with root ID {device_body.root_id}.')
             return
 

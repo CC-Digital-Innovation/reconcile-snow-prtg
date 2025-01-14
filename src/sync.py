@@ -67,9 +67,14 @@ def sync_trees(expected: Node,
     return devices_added, devices_deleted
 
 
-def sync_device(expected_path: tuple[Node], current_controller: PrtgController, expected_controller: SnowController, root_group: Group | None = None) -> Device:
-    """Synchronize a given device: (1) create groups, if necessary, (2) update device details, (3) move device if necessary, 
-    and (4) remove last group if empty. If device does not exist, simply create device and any intermediate groups if necessary.
+def sync_device(expected_path: tuple[Node],
+                current_controller: PrtgController,
+                expected_controller: SnowController,
+                root_group: Group | None = None) -> Device:
+    """Synchronize a given device: (1) create groups, if necessary, (2) update 
+    device details, (3) move device if necessary, and (4) remove last group if 
+    empty. If device does not exist, simply create device and any intermediate 
+    groups if necessary.
 
     Args:
         expected (tuple[Node]): tuple of nodes representing path to device and its updated details
