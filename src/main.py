@@ -301,7 +301,7 @@ def sync_site_and_email_task(company_name, site_name, root_id, root_is_site, del
                 log_error_console_and_snow(request_id, str(e))
                 return
         logger.info(f'Group with ID {root_id} found in PRTG.')
-        if group.name.startswith(expected_tree.prtg_obj.name):
+        if not group.name.startswith(expected_tree.prtg_obj.name):
             log_error_console_and_snow(request_id, f'Root ID {root_id} returns object named "{group.name}" but does not start with expected name "{expected_tree.prtg_obj.name}".')
             return
         current_tree = prtg_controller.get_tree(group)
