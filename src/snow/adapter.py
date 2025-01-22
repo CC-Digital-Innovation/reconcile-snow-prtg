@@ -83,7 +83,7 @@ class FieldGroup(ABC):
     get_group to determine which group it belongs to and the next FieldGroup to 
     follow."""
     @abstractmethod
-    def get_group(self, ci:ConfigItem) -> tuple[str, Node]:
+    def get_group(self, ci:ConfigItem) -> tuple[str, 'FieldGroup']:
         pass
 
 
@@ -191,7 +191,7 @@ class MultiChoiceSetFieldGroup(FieldGroup):
 
     @classmethod
     def from_dict(cls, field_name: str, field_groups_dict: Mapping[str, Iterable[str]]):
-        return cls((ChoiceSetFieldGroup(field_name, set(choices), group_name) for group_name, choices in field_groups_dict.items()))
+        return cls([ChoiceSetFieldGroup(field_name, set(choices), group_name) for group_name, choices in field_groups_dict.items()])
 
     def get_group(self, ci: ConfigItem):
         """
@@ -228,7 +228,6 @@ class TreeBuilder:
             except StopIteration:
                 # subgroup does not exist, create it
                 next_subgroup = Node(PrtgGroupAdapter(group_name), parent=parent)
-            
             parent = next_subgroup  # update current parent
         return Node(PrtgDeviceAdapter.from_ci(ci, self.device_name_fmt_key), parent=parent)
 
