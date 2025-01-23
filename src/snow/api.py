@@ -117,6 +117,7 @@ class ApiClient:
 
     def get_ci(self, ci_id: str):
         cis = self.client.resource(api_path='/table/cmdb_ci')
+        cis.parameters.display_value = True
         query = pysnow.QueryBuilder().field('sys_id').equals(ci_id)
         response = cis.get(query=query)
         try:
