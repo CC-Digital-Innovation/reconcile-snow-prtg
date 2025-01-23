@@ -255,7 +255,7 @@ def sync_all_sites(company_name: str = Form(..., description='Name of Company'),
     return f'Successfully added {len(devices_added)} and deleted {len(devices_deleted)} devices to {company_name}.'
 
 @logger.catch
-@app.patch("/syncDevice", status_code=status.HTTP_202_ACCEPTED)
+@app.patch("/syncDevice", status_code=status.HTTP_202_ACCEPTED, dependencies=[Depends(authorize)])
 def sync_device(device_body: DeviceBody, background_tasks: BackgroundTasks):
     # run long sync process and email in background
     background_tasks.add_task(sync_device_task, device_body)
