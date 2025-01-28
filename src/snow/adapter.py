@@ -232,6 +232,59 @@ class TreeBuilder:
         return Node(PrtgDeviceAdapter.from_ci(ci, self.device_name_fmt_key), parent=parent)
 
 
+# organize subgroups by sys_class_name
+# keys are subgroup names and values are list of matching sys_class_names
+server_class_map = {
+    'Out of Band Management': ['Out of Band Management'],
+    'Windows Server': ['Windows Server'],
+    'Linux Server': ['Linux Server'],
+    'Application Server': ['Application Server']
+}
+
+network_class_map = {
+    'IP Switch': ['Switch', 'IP Switch', 'IP Switch Cluster'],
+    'APs': ['Wireless Access Point'],
+    'IP Router': ['IP Router', 'Router', 'Internet Gateway'],
+    'Firewall': ['Firewall Manager', 'Firewall Hardware', 'Software Firewall', 'Firewall Device'],
+    'WAN Interface': ['WAN Interface']
+}
+
+storage_class_map = {
+    'Storage Device': ['Storage Device'],
+    'Storage Controller': ['Storage Controller'],
+    'Storage Cluster': ['Storage Cluster'],
+    'Storage Node': ['Storage Node'],
+    'Storage Switch': ['Storage Switch']
+}
+
+virt_class_map = {
+    'vCenter': ['VMware vCenter Instance'],
+    'Hypervisor': ['ESX Server', 'Hyper-V Server'],
+    'Virtual Machine': ['Virtual Machine Instance', 'VMware Virtual Machine Instance', 'Windows Server', 'Linux Server', 'MS SQL DataBase', 'Application Server'],
+}
+
+hardware_class_map = {
+    'PDU': ['PDU'],
+    'UPS': ['UPS']
+}
+
+# create field groups for organizing tree. Build in reverse order to attach child nodes
+server_class_group = MultiChoiceSetFieldGroup.from_dict('sys_class', server_class_map)
+network_class_group = MultiChoiceSetFieldGroup.from_dict('sys_class', network_class_map)
+storage_class_group = MultiChoiceSetFieldGroup.from_dict('sys_class', storage_class_map)
+virt_class_group = MultiChoiceSetFieldGroup.from_dict('sys_class', virt_class_map)
+hardware_class_group = MultiChoiceSetFieldGroup.from_dict('sys_class', hardware_class_map)
+category_map = {
+    'Server': server_class_group,
+    'Network': network_class_group,
+    'Storage': storage_class_group,
+    'Virtualization': virt_class_group,
+    'Hardware': hardware_class_group
+}
+category_group = ValueFieldGroup('category', children_map=category_map)
+stage_group = ValueFieldGroup('stage', child=category_group)
+TREE_STRUCT = BooleanFieldGroup('is_internal', 'CC Infrastructure', 'Customer Managed Infrastructure', f_child=stage_group)
+
 # Tree creation is more complex so avoided a class object
 def get_prtg_tree_adapter(company: Company,
                           location: Location,
@@ -267,60 +320,7 @@ def get_prtg_tree_adapter(company: Company,
         return root
 
     # Enough devices to organize into groups
-
-    # organize subgroups by sys_class_name
-    # keys are subgroup names and values are list of matching sys_class_names
-    server_class_map = {
-        'Out of Band Management': ['Out of Band Management'],
-        'Windows Server': ['Windows Server'],
-        'Linux Server': ['Linux Server'],
-        'Application Server': ['Application Server']
-    }
-
-    network_class_map = {
-        'IP Switch': ['Switch', 'IP Switch', 'IP Switch Cluster'],
-        'APs': ['Wireless Access Point'],
-        'IP Router': ['IP Router', 'Router', 'Internet Gateway'],
-        'Firewall': ['Firewall Manager', 'Firewall Hardware', 'Software Firewall', 'Firewall Device']
-    }
-
-    storage_class_map = {
-        'Storage Device': ['Storage Device'],
-        'Storage Controller': ['Storage Controller'],
-        'Storage Cluster': ['Storage Cluster'],
-        'Storage Node': ['Storage Node'],
-        'Storage Switch': ['Storage Switch']
-    }
-
-    virt_class_map = {
-        'vCenter': ['VMware vCenter Instance'],
-        'Hypervisor': ['ESX Server', 'Hyper-V Server'],
-        'Virtual Machine': ['Virtual Machine Instance', 'VMware Virtual Machine Instance', 'Windows Server', 'Linux Server', 'MS SQL DataBase', 'Application Server'],
-    }
-
-    hardware_class_map = {
-        'PDU': ['PDU'],
-        'UPS': ['UPS']
-    }
-
-    # create field groups for organizing tree. Build in reverse order to attach child nodes
-    server_class_group = MultiChoiceSetFieldGroup.from_dict('sys_class', server_class_map)
-    network_class_group = MultiChoiceSetFieldGroup.from_dict('sys_class', network_class_map)
-    storage_class_group = MultiChoiceSetFieldGroup.from_dict('sys_class', storage_class_map)
-    virt_class_group = MultiChoiceSetFieldGroup.from_dict('sys_class', virt_class_map)
-    hardware_class_group = MultiChoiceSetFieldGroup.from_dict('sys_class', hardware_class_map)
-    category_map = {
-        'Server': server_class_group,
-        'Network': network_class_group,
-        'Storage': storage_class_group,
-        'Virtualization': virt_class_group,
-        'Hardware': hardware_class_group
-    }
-    category_group = ValueFieldGroup('category', children_map=category_map)
-    stage_group = ValueFieldGroup('stage', child=category_group)
-    is_internal_group = BooleanFieldGroup('is_internal', 'CC Infrastructure', 'Customer Managed Infrastructure', f_child=stage_group)
-
-    tree_builder = TreeBuilder(site, is_internal_group, group_name_fmt, company.prtg_device_name_format)
+    tree_builder = TreeBuilder(site, TREE_STRUCT, group_name_fmt, company.prtg_device_name_format)
     for ci in config_items:
         tree_builder.add_ci(ci)
     return root
