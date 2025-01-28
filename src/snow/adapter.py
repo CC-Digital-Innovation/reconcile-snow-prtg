@@ -141,7 +141,7 @@ class BooleanFieldGroup(FieldGroup):
 
 class ChoiceSetFieldGroup(FieldGroup):
     """Represents a group organized by a choice set field."""
-    def __init__(self, 
+    def __init__(self,
                  field_name: str,
                  choices: Set[str],
                  group_name: str,
@@ -260,7 +260,11 @@ storage_class_map = {
 virt_class_map = {
     'vCenter': ['VMware vCenter Instance'],
     'Hypervisor': ['ESX Server', 'Hyper-V Server'],
-    'Virtual Machine': ['Virtual Machine Instance', 'VMware Virtual Machine Instance', 'Windows Server', 'Linux Server', 'MS SQL DataBase', 'Application Server'],
+    'Virtual Machine': ['Virtual Machine Instance',
+                        'VMware Virtual Machine Instance',
+                        'Windows Server', 'Linux Server',
+                        'MS SQL DataBase',
+                        'Application Server'],
 }
 
 hardware_class_map = {
