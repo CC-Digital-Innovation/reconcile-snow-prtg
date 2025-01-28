@@ -117,6 +117,7 @@ class ApiClient:
 
     def get_ci(self, ci_id: str):
         cis = self.client.resource(api_path='/table/cmdb_ci')
+        cis.parameters.display_value = True
         query = pysnow.QueryBuilder().field('sys_id').equals(ci_id)
         response = cis.get(query=query)
         try:
@@ -133,7 +134,6 @@ class ApiClient:
             .AND().field('location.name').equals(location_name)
             .AND().field('u_category').equals(category)
             .AND().field('u_used_for').equals(stage)
-            .AND().field('u_cc_type').equals('root')
             .AND().field('u_prtg_instrumentation').equals('false')
             .AND().field('name').order_ascending()
         )
@@ -148,7 +148,6 @@ class ApiClient:
             get_active_ci_query()
             .AND().field('company.name').equals(company_name)
             .AND().field('location.name').equals(location_name)
-            .AND().field('u_cc_type').equals('root')
             .AND().field('name').order_ascending()
         )
 
@@ -157,7 +156,6 @@ class ApiClient:
                 (
                     query
                     .AND().field('u_prtg_instrumentation').equals('true')
-                    .OR().field('u_cc_type').is_empty()
                 )
             else:
                 (
@@ -165,8 +163,6 @@ class ApiClient:
                     .AND().field('u_prtg_instrumentation').equals('false')
                     .OR().field('u_prtg_instrumentation').is_empty()
                 )
-        else:
-            query.OR().field('u_cc_type').is_empty()
 
         response = cis.get(query=query)
         return response.all()
@@ -196,8 +192,6 @@ class ApiClient:
             get_active_ci_query()
             .AND().field('company.name').equals(company_name)
             .AND().field('location.name').equals(location_name)
-            .AND().field('u_cc_type').equals('root')
-            .OR().field('u_cc_type').is_empty()
             .AND().field('name').order_ascending()
         )
         response = ci_aggregate.get(query=query)
