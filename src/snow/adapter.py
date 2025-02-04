@@ -262,7 +262,8 @@ virt_class_map = {
     'Hypervisor': ['ESX Server', 'Hyper-V Server'],
     'Virtual Machine': ['Virtual Machine Instance',
                         'VMware Virtual Machine Instance',
-                        'Windows Server', 'Linux Server',
+                        'Windows Server',
+                        'Linux Server',
                         'MS SQL DataBase',
                         'Application Server'],
 }
