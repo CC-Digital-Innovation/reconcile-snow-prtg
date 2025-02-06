@@ -1,5 +1,6 @@
 from prtg import ApiClient, Icon
 from prtg.exception import ObjectNotFound
+from requests.exceptions import HTTPError
 
 from .models import Device, Group, Node, Status
 
@@ -313,7 +314,10 @@ class PrtgController:
         """
         if obj.id is None:
             raise ValueError(f'Cannot delete object, object ID is missing for object {obj.name}')
-        self.client.delete_object(obj.id)
+        try:
+            self.client.delete_object(obj.id)
+        except HTTPError as e:
+            raise ValueError(f'Cannot delete object {obj.name} with ID {obj.id}. Error: {e}')
 
     def get_tree(self, group: Group) -> Node:
         """Create a tree model of a group in PRTG. There exists a get_sensortree() endpoint
