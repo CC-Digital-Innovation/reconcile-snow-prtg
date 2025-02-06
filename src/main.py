@@ -9,7 +9,8 @@ from tempfile import SpooledTemporaryFile
 
 import anytree
 import dotenv
-from fastapi import BackgroundTasks, Depends, FastAPI, Form, HTTPException, status
+from fastapi import (BackgroundTasks, Depends, FastAPI, Form, HTTPException,
+                     Path, status)
 from fastapi.security import APIKeyHeader
 from loguru import logger
 from prtg import ApiClient as PrtgClient
@@ -26,7 +27,7 @@ from alt_prtg import PrtgController
 from alt_prtg.models import Device
 from snow import ApiClient as SnowClient
 from snow import SnowController
-from snow.adapter import PrtgDeviceAdapter, get_prtg_tree_adapter
+from snow.adapter import get_prtg_tree_adapter
 from snow.models import DeviceBody, Log, State
 
 # load secrets from .env
@@ -262,8 +263,8 @@ def sync_device(device_body: DeviceBody, background_tasks: BackgroundTasks):
 
 @logger.catch
 @app.delete('/devices/{id}', dependencies=[Depends(authorize)])
-def delete_device(id: str, prtg_url: str, prtg_api_key: str, background_tasks: BackgroundTasks, request_id: str | None = None):
-    background_tasks.add_task(delete_device_task, id, prtg_url, prtg_api_key, request_id)
+def delete_device(prtg_url: str, prtg_api_key: str, background_tasks: BackgroundTasks, prtg_id: str = Path(..., alias='id'), request_id: str | None = None):
+    background_tasks.add_task(delete_device_task, prtg_id, prtg_url, prtg_api_key, request_id)
 
 
 def log_error_console_and_snow(request_id: str | None, error_msg: str):
@@ -416,7 +417,7 @@ def sync_device_task(device_body: DeviceBody):
         success_log = Log(device_body.request_id, State.SUCCESS, f'Successfully created/updated {device.name} with ID {device.id}.')
         snow_controller.post_log(success_log)
 
-def delete_device_task(id: str, prtg_url: str, prtg_api_key: str, request_id: str | None):
+def delete_device_task(prtg_id: str, prtg_url: str, prtg_api_key: str, request_id: str | None):
     # build PRTG controller from parameters
     auth = BasicToken(prtg_api_key)
     client = PrtgClient(prtg_url, auth)
@@ -425,7 +426,7 @@ def delete_device_task(id: str, prtg_url: str, prtg_api_key: str, request_id: st
     logger.debug(f'Device ID from payload: {id}.')
 
     try:
-        prtg_device = prtg_controller.get_device(id)
+        prtg_device = prtg_controller.get_device(prtg_id)
     except ValueError as e:
         log_error_console_and_snow(request_id, str(e))
         return
