@@ -26,7 +26,7 @@ from alt_prtg import PrtgController
 from alt_prtg.models import Device
 from snow import ApiClient as SnowClient
 from snow import SnowController
-from snow.adapter import get_prtg_tree_adapter
+from snow.adapter import PrtgDeviceAdapter, get_prtg_tree_adapter
 from snow.models import DeviceBody, Log, State
 
 # load secrets from .env
@@ -255,12 +255,18 @@ def sync_all_sites(company_name: str = Form(..., description='Name of Company'),
     return f'Successfully added {len(devices_added)} and deleted {len(devices_deleted)} devices to {company_name}.'
 
 @logger.catch
-@app.patch("/syncDevice", status_code=status.HTTP_202_ACCEPTED, dependencies=[Depends(authorize)])
+@app.patch('/syncDevice', status_code=status.HTTP_202_ACCEPTED, dependencies=[Depends(authorize)])
 def sync_device(device_body: DeviceBody, background_tasks: BackgroundTasks):
     # run long sync process and email in background
     background_tasks.add_task(sync_device_task, device_body)
 
-def log_error_console_and_snow(request_id: str, error_msg: str):
+@logger.catch
+@app.delete('/devices/{id}', dependencies=[Depends(authorize)])
+def delete_device(id: str, prtg_url: str, prtg_api_key: str, background_tasks: BackgroundTasks, request_id: str | None = None):
+    background_tasks.add_task(delete_device_task, id, prtg_url, prtg_api_key, request_id)
+
+
+def log_error_console_and_snow(request_id: str | None, error_msg: str):
     logger.error(error_msg)
     if request_id is not None:
         error_log = Log(request_id, State.FAILED, error_msg)
@@ -315,8 +321,11 @@ def sync_site_and_email_task(company_name, site_name, root_id, root_is_site, del
 
         # No changes found, return
         if not devices_added and not devices_deleted:
-            no_change_log = Log(request_id, State.SUCCESS, f'No devices added or deleted for {company_name} at {site_name}. Existing devices and their fields may have been updated.')
-            snow_controller.post_log(no_change_log)
+            msg = f'No devices added or deleted for {company_name} at {site_name}. Existing devices and their fields may have been updated.'
+            logger.info(msg)
+            if request_id is not None:
+                no_change_log = Log(request_id, State.SUCCESS, msg)
+                snow_controller.post_log(no_change_log)
             return
 
         # Send Report
@@ -405,4 +414,26 @@ def sync_device_task(device_body: DeviceBody):
         return
     if device_body.request_id is not None:
         success_log = Log(device_body.request_id, State.SUCCESS, f'Successfully created/updated {device.name} with ID {device.id}.')
+        snow_controller.post_log(success_log)
+
+def delete_device_task(id: str, prtg_url: str, prtg_api_key: str, request_id: str | None):
+    # build PRTG controller from parameters
+    auth = BasicToken(prtg_api_key)
+    client = PrtgClient(prtg_url, auth)
+    prtg_controller = PrtgController(client)
+    logger.debug(f'PRTG URL: {prtg_url}')
+    logger.debug(f'Device ID from payload: {id}.')
+
+    # adapt CI to PRTG device to delete
+    ci = snow_controller.get_config_item(id)
+    prtg_device = PrtgDeviceAdapter.from_ci(ci)
+    try:
+        prtg_controller.delete_object(prtg_device)
+    except ValueError as e:
+        log_error_console_and_snow(request_id, str(e))
+        return
+    msg = f'Successfully deleted {prtg_device.name} with ID {prtg_device.id}.'
+    logger.info(msg)
+    if request_id is not None:
+        success_log = Log(request_id, State.SUCCESS, msg)
         snow_controller.post_log(success_log)
