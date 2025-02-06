@@ -424,9 +424,11 @@ def delete_device_task(id: str, prtg_url: str, prtg_api_key: str, request_id: st
     logger.debug(f'PRTG URL: {prtg_url}')
     logger.debug(f'Device ID from payload: {id}.')
 
-    # adapt CI to PRTG device to delete
-    ci = snow_controller.get_config_item(id)
-    prtg_device = PrtgDeviceAdapter.from_ci(ci)
+    try:
+        prtg_device = prtg_controller.get_device(id)
+    except ValueError as e:
+        log_error_console_and_snow(request_id, str(e))
+        return
     try:
         prtg_controller.delete_object(prtg_device)
     except ValueError as e:
