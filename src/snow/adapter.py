@@ -246,11 +246,12 @@ network_class_map = {
     'APs': ['Wireless Access Point'],
     'IP Router': ['IP Router', 'Router', 'Internet Gateway'],
     'Firewall': ['Firewall Manager', 'Firewall Hardware', 'Software Firewall', 'Firewall Device'],
-    'WAN Interface': ['WAN Interface']
+    'WAN Interface': ['WAN Interface'],
+    'Management Server': ['Management Server']
 }
 
 storage_class_map = {
-    'Storage Device': ['Storage Device'],
+    'Storage Device': ['Storage Device', 'Storage Server'],
     'Storage Controller': ['Storage Controller'],
     'Storage Cluster': ['Storage Cluster'],
     'Storage Node': ['Storage Node'],
