@@ -174,7 +174,10 @@ class PrtgController:
         Returns:
             Device
         """
-        device = self.client.get_device(device_id)
+        try:
+            device = self.client.get_device(device_id)
+        except ObjectNotFound as e:
+            raise ValueError(f'Cannot get device with ID {device_id}. Error: {e}')
         return self._get_device(device)
 
     def add_device(self, device: Device, parent: Group) -> Device:
