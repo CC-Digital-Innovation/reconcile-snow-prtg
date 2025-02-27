@@ -100,6 +100,8 @@ class SnowController:
 
     def update_config_item(self, ci: ConfigItem):
         # Currently only updates prtg_id field
+        if ci.prtg_id is None:
+            self.client.update_prtg_id(ci.id, '')  # empty string removes prtg_id field
         self.client.update_prtg_id(ci.id, ci.prtg_id)
 
     def get_device_count(self, company: Company, location: Location) -> int:
