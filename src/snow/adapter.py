@@ -247,7 +247,8 @@ network_class_map = {
     'IP Router': ['IP Router', 'Router', 'Internet Gateway'],
     'Firewall': ['Firewall Manager', 'Firewall Hardware', 'Software Firewall', 'Firewall Device'],
     'WAN Interface': ['WAN Interface'],
-    'Management Server': ['Management Server']
+    'Management Server': ['Management Server'],
+    'Core Switch': ['Core Switch']
 }
 
 storage_class_map = {
