@@ -280,15 +280,20 @@ class PrtgController:
                 obj_dict = self.client.get_group(obj.id)
             except ObjectNotFound:
                 # object could be a probe
-                obj_dict = self.client.get_probe(obj.id)
+                try:
+                    obj_dict = self.client.get_probe(obj.id)
+                except ObjectNotFound:
+                    raise ValueError(f'Cannot find object with ID: {obj.id}')
         else:
             raise ValueError(f'Unsupported type {type(obj)}')
         try:
-            group = self.client.get_group(obj_dict['parentid'])
+            return self._get_group(self.client.get_group(obj_dict['parentid']))
         except ObjectNotFound:
-            # parent could be a probe
-            group = self.client.get_probe(obj_dict['parentid'])
-        return self._get_group(group)
+            pass  # parent could be a probe
+        try:
+            return self._get_group(self.client.get_probe(obj_dict['parentid']))
+        except ObjectNotFound:
+            raise ValueError(f'Cannot find parent with ID: {obj_dict["parentid"]}')
 
     def move_object(self, obj: Device | Group, parent: Group):
         """Move an object

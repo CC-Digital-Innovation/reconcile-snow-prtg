@@ -374,6 +374,7 @@ def sync_site_and_email_task(company_name, site_name, root_id, root_is_site, del
         logger.info(f'Successfully added {len(devices_added)} and deleted {len(devices_deleted)} devices to {company_name} at {site_name}.')
     except Exception as e:
         # Catch all other unhandled exceptions
+        logger.exception('Unhandled error')
         log_error_console_and_snow(request_id, 'Unhandled error: ' + str(e))
         return
     if request_id is not None:
