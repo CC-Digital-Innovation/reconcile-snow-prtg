@@ -118,15 +118,27 @@ def sync_device(expected_path: tuple[Node],
     # find first missing group, if any
     for node in expected_node_iter:
         groups = current_controller.get_groups_by_name(node.prtg_obj.name)
-        # groups can have duplicate names. ensure unique group by its parent ID
-        try:
-            group = next((group for group in groups if existing_group.id == current_controller.get_parent(group).id))
-        except StopIteration:
-            groups_to_create.append(node.prtg_obj)
-            # add the rest of missing groups, if any. This will naturally break out of outer for loop
-            groups_to_create.extend([node.prtg_obj for node in expected_node_iter])
-        else:
-            existing_group = group
+        # implement local retry due to inconsistent API. Issue is when API returns a valid response but the data is invalid,
+        # e.g. the data exists but API returns empty
+        attempts = 2
+        for a in range(attempts):
+            # groups can have duplicate names. ensure unique group by its parent ID
+            try:
+                group = next((group for group in groups if existing_group.id == current_controller.get_parent(group).id))
+            except ValueError as e:
+                # possible incorrect API data, retry
+                logger.warning(f'Attempt {a+1}: {str(e)}')
+                # re-raise if final attempt
+                if a == attempts - 1:
+                    raise e
+            except StopIteration:
+                groups_to_create.append(node.prtg_obj)
+                # add the rest of missing groups, if any. This will naturally break out of outer for loop
+                groups_to_create.extend([node.prtg_obj for node in expected_node_iter])
+                break
+            else:
+                existing_group = group
+                break
     # create intermediate groups, if any
     # replace existing_group variable for when moving device
     for group in groups_to_create:
