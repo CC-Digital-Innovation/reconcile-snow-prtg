@@ -10,8 +10,9 @@ from tempfile import SpooledTemporaryFile
 import anytree
 import dotenv
 from fastapi import (BackgroundTasks, Depends, FastAPI, Form, HTTPException,
-                     Path, status)
+                     Path, Request, status)
 from fastapi.security import APIKeyHeader
+from fastapi.exception_handlers import http_exception_handler
 from loguru import logger
 from prtg import ApiClient as PrtgClient
 from prtg.auth import BasicAuth, BasicPasshash, BasicToken
@@ -19,6 +20,7 @@ from prtg.exception import ObjectNotFound
 from pydantic import SecretStr
 from pysnow.exceptions import MultipleResults, NoResults
 from requests.exceptions import HTTPError
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 import report
 import sync
@@ -131,6 +133,17 @@ logger.info('Starting up XSAutomate API...')
 desc = f'Defaults to the "{PRTG_BASE_URL.split("://")[1]}" instance. In order to use a different PRTG instance, enter the URL and credential parameters before\
       executing an endpoint. To authenticate for a different PRTG instance, enter one of: (1) token, (2) username and password, or (3) username and passhash.'
 app = FastAPI(title='Reconcile Snow & PRTG', description=desc)
+
+
+# custom exception handler to forward responses to snow
+@app.exception_handler(StarletteHTTPException)
+async def custom_snow_exception_handler(request: Request, exc: HTTPException):
+    form_data = await request.form()
+    request_id = form_data.get('request_id', '')
+    if request_id:
+        snow_controller.post_log(Log(request_id, State.FAILED, exc.detail))
+    return await http_exception_handler(request, exc)
+
 
 @logger.catch
 @app.post('/syncSite', dependencies=[Depends(authorize)], status_code=status.HTTP_202_ACCEPTED)
