@@ -128,6 +128,25 @@ def custom_prtg_parameters(
     # use default PRTG instance
     return PrtgClient(PRTG_BASE_URL, prtg_auth, requests_verify=PRTG_VERIFY)
 
+# dependency injection for validating company record in snow
+def validated_company(company_name: str = Form(..., description='Name of Company')):
+    try:
+        company = snow_controller.get_company_by_name(company_name)
+    except NoResults as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e) + f' for company {company_name}')
+    except MultipleResults as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e) + f' for company {company_name}')
+    return company
+
+# dependency injection for validating location record in snow
+def validated_site(site_name: str =  Form(..., description='Name of Site (Location)')):
+    try:
+        location = snow_controller.get_location_by_name(site_name)
+    except NoResults as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e) + f' for location {site_name}')
+    except MultipleResults as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e) + f' for location {site_name}')
+    return location
 
 logger.info('Starting up XSAutomate API...')
 desc = f'Defaults to the "{PRTG_BASE_URL.split("://")[1]}" instance. In order to use a different PRTG instance, enter the URL and credential parameters before\
