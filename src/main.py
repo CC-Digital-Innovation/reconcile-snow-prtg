@@ -11,8 +11,8 @@ import anytree
 import dotenv
 from fastapi import (BackgroundTasks, Depends, FastAPI, Form, HTTPException,
                      Path, Request, status)
-from fastapi.security import APIKeyHeader
 from fastapi.exception_handlers import http_exception_handler
+from fastapi.security import APIKeyHeader
 from loguru import logger
 from prtg import ApiClient as PrtgClient
 from prtg.auth import BasicAuth, BasicPasshash, BasicToken
@@ -30,7 +30,7 @@ from alt_prtg.models import Device
 from snow import ApiClient as SnowClient
 from snow import SnowController
 from snow.adapter import get_prtg_tree_adapter
-from snow.models import DeviceBody, Log, State
+from snow.models import Company, DeviceBody, Location, Log, State
 
 # load secrets from .env
 # loaded secrets will not overwrite existing environment variables
@@ -130,22 +130,26 @@ def custom_prtg_parameters(
 
 # dependency injection for validating company record in snow
 def validated_company(company_name: str = Form(..., description='Name of Company')):
+    company_name = html.escape(company_name, quote=False)
     try:
         company = snow_controller.get_company_by_name(company_name)
     except NoResults as e:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(e) + f' for company {company_name}')
     except MultipleResults as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e) + f' for company {company_name}')
+    logger.info(f'Company "{company.name} found in SNOW."')
     return company
 
 # dependency injection for validating location record in snow
 def validated_site(site_name: str =  Form(..., description='Name of Site (Location)')):
+    site_name = html.escape(site_name, quote=False)
     try:
         location = snow_controller.get_location_by_name(site_name)
     except NoResults as e:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(e) + f' for location {site_name}')
     except MultipleResults as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e) + f' for location {site_name}')
+    logger.info(f'Location "{location.name}" found in SNOW.')
     return location
 
 logger.info('Starting up XSAutomate API...')
@@ -298,6 +302,51 @@ def sync_device(device_body: DeviceBody, background_tasks: BackgroundTasks):
 def delete_device(prtg_url: str, prtg_api_key: str, background_tasks: BackgroundTasks, sys_id: str = Path(..., alias='id'), request_id: str | None = None):
     background_tasks.add_task(delete_device_task, sys_id, prtg_url, prtg_api_key, request_id)
 
+@logger.catch
+@app.post('/buildSite', status_code=status.HTTP_202_ACCEPTED, dependencies=[Depends(authorize)])
+def build_site(background_tasks: BackgroundTasks,
+        company: Company = Depends(validated_company),
+        location: Location = Depends(validated_site),
+        root_id: int = Form(..., description='ID of root group (not to be confused with Probe Device)'),
+        root_is_site: bool = Form(False, description='Set to true if root group is the site'),
+        prtg_client: PrtgClient = Depends(custom_prtg_parameters),
+        request_id: str | None = Form(None, description='Optional ID to return as response.')):
+    background_tasks.add_task(build_site_task, company, location, root_id, root_is_site, prtg_client, request_id)
+
+def build_site_task(company: Company, location: Location, root_id: int, root_is_site: bool, prtg_client: PrtgClient, request_id: str | None):
+    # get SNOW configuration items and build expected tree for only missing IDs
+    config_items = snow_controller.get_config_items(company, location, missing=True)
+    try:
+        expected_tree = get_prtg_tree_adapter(company, location, config_items, snow_controller, root_is_site, MIN_DEVICES)
+    except ValueError as e:
+        logger.exception(e)
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, e)
+
+    # get PRTG controller and build current tree
+    prtg_controller = PrtgController(prtg_client)
+    try:
+        group = prtg_controller.get_probe(root_id)
+    except ObjectNotFound:
+        try:
+            group = prtg_controller.get_group(root_id)
+        except ObjectNotFound as e:
+            logger.exception(e)
+            raise HTTPException(status.HTTP_404_NOT_FOUND, e)
+    logger.info(f'Group with ID {root_id} found in PRTG.')
+    if not group.name.startswith(expected_tree.prtg_obj.name):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f'Root ID {root_id} returns object named "{group.name}" but does not start with expected name "{expected_tree.prtg_obj.name}".')
+    current_tree = prtg_controller.get_tree(group)
+
+    devices_added = sync.build_only_tree(expected_tree, current_tree, snow_controller, prtg_controller)
+
+    if devices_added:
+        msg = f'Successfully added {len(devices_added)} devices to {company.name} at {location.name}.'
+    else:
+        msg = f'No devices added or deleted for {company.name} at {location.name}.'
+    logger.info(msg)
+    # respond to snow
+    if request_id:
+        snow_controller.post_log(Log(request_id, State.SUCCESS, msg))
 
 def log_error_console_and_snow(request_id: str | None, error_msg: str):
     logger.error(error_msg)
