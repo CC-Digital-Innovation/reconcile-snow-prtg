@@ -183,3 +183,42 @@ def sync_device(expected_path: tuple[Node],
             current_parent = ancestor
     # return updated device (new current device)
     return current_controller.get_device(expected_device.id)
+
+def build_only_tree(expected: Node,
+               current: Node,
+               expected_controller: SnowController,
+               current_controller: PrtgController):
+    # store existing group and IDs for quick retrieval
+    # groups are unique by their name AND their parent so keys are saved as tuples
+    # separate root first since it does not have a parent
+    current_group_iter = anytree.LevelOrderIter(current, filter_=lambda n: isinstance(n.prtg_obj, Group))
+    current_root = next(current_group_iter)
+    current_groups = {(group.prtg_obj.name, group.parent.prtg_obj.id): group.prtg_obj.id for group in current_group_iter}
+
+    # track new devices added
+    device_added_list = []
+
+    # iterate level-order expected tree to ensure groups are built first
+    expected_tree_iter = anytree.LevelOrderIter(expected)
+    # separate and assign root ID first
+    expected_root = next(expected_tree_iter)
+    expected_root.prtg_obj.id = current_root.prtg_obj.id
+    # continue with rest of tree
+    for node in expected_tree_iter:
+        if isinstance(node.prtg_obj, Group):
+            # create new group if it does not exist
+            if (node.prtg_obj.name, node.parent.prtg_obj.id) not in current_groups:
+                logger.info(f'Adding missing, intermediate group {node.prtg_obj.name} to {node.parent.prtg_obj.name}...')
+                new_group = current_controller.add_group(node.prtg_obj, node.parent.prtg_obj)
+                current_groups[(new_group.name, node.parent.prtg_obj.id)] = new_group.id
+            # assign ID to expected groups
+            node.prtg_obj.id = current_groups[(node.prtg_obj.name, node.parent.prtg_obj.id)]
+        elif isinstance(node.prtg_obj, Device):
+            # create missing devices
+            logger.info(f'Adding new device {node.prtg_obj.name} to {node.parent.prtg_obj}...')
+            new_device = current_controller.add_device(node.prtg_obj, node.parent.prtg_obj)
+            device_added_list.append(new_device)
+            node.prtg_obj.id = node.prtg_obj.ci.prtg_id = new_device.id
+            # update snow record
+            expected_controller.update_config_item(node.prtg_obj.ci)
+    return device_added_list
