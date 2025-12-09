@@ -94,8 +94,8 @@ class SnowController:
     def get_config_item(self, ci_id: str) -> ConfigItem:
         return self._get_config_item(self.client.get_ci(ci_id))
 
-    def get_config_items(self, company: Company, location: Location) -> list[ConfigItem]:
-        cis = self.client.get_cis_by_site(company.name, location.name)
+    def get_config_items(self, company: Company, location: Location, missing: bool = False) -> list[ConfigItem]:
+        cis = self.client.get_cis_by_site(company.name, location.name, missing=missing)
         return [self._get_config_item(ci, company, location) for ci in cis]
 
     def update_config_item(self, ci: ConfigItem):

@@ -140,8 +140,18 @@ class ApiClient:
         response = cis.get(query=query)
         return response.all()
 
-    def get_cis_by_site(self, company_name, location_name, internal = None):
-        '''Returns a list of all devices from a company'''
+    def get_cis_by_site(self, company_name, location_name, internal = None, missing = False):
+        """Returns a list of all configuration items from a company site
+
+        Args:
+            company_name (str): company name to filter by
+            location_name (str): location name to filter by
+            internal (bool, optional): further filter by internal value. Defaults to None.
+            missing (bool, optional): further filter for missing PRTG ID. Defaults to False.
+
+        Returns:
+            list[dict]: list of configuration item details
+        """
         cis = self.client.resource(api_path='/table/cmdb_ci')
         cis.parameters.display_value = True
         query = (
@@ -163,6 +173,9 @@ class ApiClient:
                     .AND().field('u_prtg_instrumentation').equals('false')
                     .OR().field('u_prtg_instrumentation').is_empty()
                 )
+
+        if missing:
+            query.AND().field('u_prtg_id').is_empty()
 
         response = cis.get(query=query)
         return response.all()
