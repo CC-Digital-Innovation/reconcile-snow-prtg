@@ -295,39 +295,47 @@ def build_site(background_tasks: BackgroundTasks,
     background_tasks.add_task(build_site_task, company, location, root_id, root_is_site, prtg_client, request_id)
 
 def build_site_task(company: Company, location: Location, root_id: int, root_is_site: bool, prtg_client: PrtgClient, request_id: str | None):
-    # get SNOW configuration items and build expected tree for only missing IDs
-    config_items = snow_controller.get_config_items(company, location, missing=True)
     try:
-        expected_tree = get_prtg_tree_adapter(company, location, config_items, snow_controller, root_is_site, MIN_DEVICES)
-    except ValueError as e:
-        logger.exception(e)
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, e)
-
-    # get PRTG controller and build current tree
-    prtg_controller = PrtgController(prtg_client)
-    try:
-        group = prtg_controller.get_probe(root_id)
-    except ObjectNotFound:
+        # get SNOW configuration items and build expected tree for only missing IDs
+        config_items = snow_controller.get_config_items(company, location, missing=True)
         try:
-            group = prtg_controller.get_group(root_id)
-        except ObjectNotFound as e:
-            logger.exception(e)
-            raise HTTPException(status.HTTP_404_NOT_FOUND, e)
-    logger.info(f'Group with ID {root_id} found in PRTG.')
-    if not group.name.startswith(expected_tree.prtg_obj.name):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, f'Root ID {root_id} returns object named "{group.name}" but does not start with expected name "{expected_tree.prtg_obj.name}".')
-    current_tree = prtg_controller.get_tree(group)
+            expected_tree = get_prtg_tree_adapter(company, location, config_items, snow_controller, root_is_site, MIN_DEVICES)
+        except ValueError as e:
+            log_error_console_and_snow(request_id, str(e))
+            raise e
 
-    devices_added = sync.build_only_tree(expected_tree, current_tree, snow_controller, prtg_controller)
+        # get PRTG controller and build current tree
+        prtg_controller = PrtgController(prtg_client)
+        try:
+            group = prtg_controller.get_probe(root_id)
+        except ObjectNotFound:
+            try:
+                group = prtg_controller.get_group(root_id)
+            except ObjectNotFound as e:
+                log_error_console_and_snow(request_id, str(e))
+                raise e
+        logger.info(f'Group with ID {root_id} found in PRTG.')
+        if not group.name.startswith(expected_tree.prtg_obj.name):
+            msg = f'Root ID {root_id} returns object named "{group.name}" but does not start with expected name "{expected_tree.prtg_obj.name}".'
+            log_error_console_and_snow(request_id, msg)
+            raise ValueError(msg)
+        current_tree = prtg_controller.get_tree(group)
 
-    if devices_added:
-        msg = f'Successfully added {len(devices_added)} devices to {company.name} at {location.name}.'
-    else:
-        msg = f'No devices added or deleted for {company.name} at {location.name}.'
-    logger.info(msg)
-    # respond to snow
-    if request_id:
-        snow_controller.post_log(Log(request_id, State.SUCCESS, msg))
+        devices_added = sync.build_only_tree(expected_tree, current_tree, snow_controller, prtg_controller)
+
+        if devices_added:
+            msg = f'Successfully added {len(devices_added)} devices to {company.name} at {location.name}.'
+        else:
+            msg = f'No devices added or deleted for {company.name} at {location.name}.'
+        logger.info(msg)
+        # respond to snow
+        if request_id:
+            snow_controller.post_log(Log(request_id, State.SUCCESS, msg))
+    except Exception as e:
+        logger.exception(e)
+        log_error_console_and_snow(request_id, f'Unhandled exception: {e}')
+        raise e
+
 
 def log_error_console_and_snow(request_id: str | None, error_msg: str):
     logger.error(error_msg)
