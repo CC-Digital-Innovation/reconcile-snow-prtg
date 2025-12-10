@@ -171,39 +171,29 @@ async def custom_snow_exception_handler(request: Request, exc: HTTPException):
 @logger.catch
 @app.post('/syncSite', dependencies=[Depends(authorize)], status_code=status.HTTP_202_ACCEPTED)
 def sync_site(background_tasks: BackgroundTasks,
-        company_name: str = Form(..., description='Name of Company'), # Ellipsis means it is required
-        site_name: str = Form(..., description='Name of Site (Location)'),
-        root_id: int = Form(..., description='ID of root group (not to be confused with Probe Device)'),
+        company: Company = Depends(validated_company),
+        location: Location = Depends(validated_site),
+        root_id: int = Form(..., description='ID of root group (not to be confused with Probe Device)'),  # Ellipsis means it is required
         root_is_site: bool = Form(False, description='Set to true if root group is the site'),
         delete: bool = Form(False, description='If true, delete inactive devices. Defaults to false.'),
         email: str | None = Form(None, description='Sends result to email address.'),
         prtg_client: PrtgClient = Depends(custom_prtg_parameters),
         request_id: str | None = Form(None, description='Optional ID to return as response.')):
-    logger.info(f'Syncing for {company_name} at {site_name}...')
-    logger.debug(f'Company name: {company_name}, Site name: {site_name}, Root ID: {root_id}, Is Root Site: {root_is_site}')
-    # clean str inputs
-    company_name = html.escape(company_name, quote=False)
-    site_name = html.escape(site_name, quote=False)
+    logger.info(f'Syncing for {company.name} at {location.name}...')
     # run long sync process and email in background
-    background_tasks.add_task(sync_site_and_email_task, company_name, site_name, root_id, root_is_site, delete, email, prtg_client, request_id)
+    background_tasks.add_task(sync_site_and_email_task, company, location, root_id, root_is_site, delete, email, prtg_client, request_id)
 
 @logger.catch
 @app.post('/syncAllSites', dependencies=[Depends(authorize)])
-def sync_all_sites(company_name: str = Form(..., description='Name of Company'), # Ellipsis means it is required
-        root_id: int = Form(..., description='ID of root group (not to be confused with Probe Device)'),
+def sync_all_sites(company: Company = Depends(validated_company),
+        root_id: int = Form(..., description='ID of root group (not to be confused with Probe Device)'),   # Ellipsis means it is required
         delete: bool = Form(False, description='If true, delete inactive devices. Defaults to false.'),
         email: str | None = Form(None, description='Sends result to email address.'),
         prtg_client: PrtgClient = Depends(custom_prtg_parameters)):
-    logger.info(f'Syncing all sites for {company_name}...')
-    logger.debug(f'Company name: {company_name}, Root ID: {root_id}')
+    logger.info(f'Syncing all sites for {company.name}...')
+    logger.debug(f'Company name: {company.name}, Root ID: {root_id}')
     # clean str input
-    company_name = html.escape(company_name, quote=False)
     try:
-        try:
-            company = snow_controller.get_company_by_name(company_name)
-        except (NoResults, MultipleResults) as e:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e) + f' for company {company_name}')
-        logger.info(f'Company "{company_name} found in SNOW."')
         locations = snow_controller.get_company_locations(company.name)
         logger.info(f'{len(locations)} locations found in SNOW.')
 
@@ -238,13 +228,13 @@ def sync_all_sites(company_name: str = Form(..., description='Name of Company'),
 
         # No changes found, return
         if not devices_added and not devices_deleted:
-            return f'No devices added or deleted for {company_name}. Existing devices and their fields may have been updated.'
+            return f'No devices added or deleted for {company.name}. Existing devices and their fields may have been updated.'
 
         # Send Report
         if email and email_client:
             logger.info('Sending report to email...')
-            subject = f'XSAutomate: Synced all sites for {company_name}'
-            report_name = f'Successfully Synced all sites for {company_name}'
+            subject = f'XSAutomate: Synced all sites for {company.name}'
+            report_name = f'Successfully Synced all sites for {company.name}'
             table_title = []
 
             # Create temporary file for report
@@ -280,7 +270,7 @@ def sync_all_sites(company_name: str = Form(..., description='Name of Company'),
                     raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR,
                                         'Sync has successfully completed but an unexpected error occurred when sending the email.')
             logger.info('Successfully sent report to email.')
-        logger.info(f'Successfully added {len(devices_added)} and deleted {len(devices_deleted)} devices to {company_name}.')
+        logger.info(f'Successfully added {len(devices_added)} and deleted {len(devices_deleted)} devices to {company.name}.')
     except (HTTPException, HTTPError) as e:
         # Reraise already handled exception
         logger.error(e)
@@ -289,7 +279,7 @@ def sync_all_sites(company_name: str = Form(..., description='Name of Company'),
         # Catch all other unhandled exceptions
         logger.exception('Unhandled error: ' + str(e))
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, 'An unexpected error occurred.')
-    return f'Successfully added {len(devices_added)} and deleted {len(devices_deleted)} devices to {company_name}.'
+    return f'Successfully added {len(devices_added)} and deleted {len(devices_deleted)} devices to {company.name}.'
 
 @logger.catch
 @app.patch('/syncDevice', status_code=status.HTTP_202_ACCEPTED, dependencies=[Depends(authorize)])
@@ -354,23 +344,11 @@ def log_error_console_and_snow(request_id: str | None, error_msg: str):
         error_log = Log(request_id, State.FAILED, error_msg)
         snow_controller.post_log(error_log)
 
-def sync_site_and_email_task(company_name, site_name, root_id, root_is_site, delete, email, prtg_client, request_id):
+def sync_site_and_email_task(company, location, root_id, root_is_site, delete, email, prtg_client, request_id):
     """to be ran using FastAPI's BackgroundTasks"""
     # global try to log unhandled exceptions
     try:
         # Get expected tree based on company and location
-        try:
-            company = snow_controller.get_company_by_name(company_name)
-        except (NoResults, MultipleResults) as e:
-            log_error_console_and_snow(request_id, str(e) + f' for company {company_name}')
-            return  # simply return since it's a background task
-        logger.info(f'Company "{company_name} found in SNOW."')
-        try:
-            location = snow_controller.get_location_by_name(site_name)
-        except (NoResults, MultipleResults) as e:
-            log_error_console_and_snow(request_id, str(e) + f' for location {site_name}')
-            return
-        logger.info(f'Location "{site_name}" found in SNOW.')
         config_items = snow_controller.get_config_items(company, location)
         try:
             expected_tree = get_prtg_tree_adapter(company, location, config_items, snow_controller, root_is_site, MIN_DEVICES)
@@ -403,7 +381,7 @@ def sync_site_and_email_task(company_name, site_name, root_id, root_is_site, del
 
         # No changes found, return
         if not devices_added and not devices_deleted:
-            msg = f'No devices added or deleted for {company_name} at {site_name}. Existing devices and their fields may have been updated.'
+            msg = f'No devices added or deleted for {company.name} at {location.name}. Existing devices and their fields may have been updated.'
             logger.info(msg)
             if request_id is not None:
                 no_change_log = Log(request_id, State.SUCCESS, msg)
@@ -413,8 +391,8 @@ def sync_site_and_email_task(company_name, site_name, root_id, root_is_site, del
         # Send Report
         if email and email_client:
             logger.info('Sending report to email...')
-            subject = f'XSAutomate: Synced {company_name} at {site_name}'
-            report_name = f'Successfully Synced {company_name} at {site_name}'
+            subject = f'XSAutomate: Synced {company.name} at {location.name}'
+            report_name = f'Successfully Synced {company.name} at {location.name}'
             table_title = []
 
             # Create temporary file for report
@@ -448,18 +426,18 @@ def sync_site_and_email_task(company_name, site_name, root_id, root_is_site, del
                 except HTTPError as e:
                     logger.exception('Unhandled error from email API: ' + str(e))
                     if request_id is not None:
-                        success_except_email_log = Log(request_id, State.SUCCESS, f'Successfully added {len(devices_added)} and deleted {len(devices_deleted)} devices to {company_name} at {site_name}, but an unexpected error occurred when sending the email.')
+                        success_except_email_log = Log(request_id, State.SUCCESS, f'Successfully added {len(devices_added)} and deleted {len(devices_deleted)} devices to {company.name} at {location.name}, but an unexpected error occurred when sending the email.')
                         snow_controller.post_log(success_except_email_log)
                     return
             logger.info('Successfully sent report to email.')
-        logger.info(f'Successfully added {len(devices_added)} and deleted {len(devices_deleted)} devices to {company_name} at {site_name}.')
+        logger.info(f'Successfully added {len(devices_added)} and deleted {len(devices_deleted)} devices to {company.name} at {location.name}.')
     except Exception as e:
         # Catch all other unhandled exceptions
         logger.exception('Unhandled error')
         log_error_console_and_snow(request_id, 'Unhandled error: ' + str(e))
         return
     if request_id is not None:
-        success_log = Log(request_id, State.SUCCESS, f'Successfully added {len(devices_added)} and deleted {len(devices_deleted)} devices to {company_name} at {site_name}.')
+        success_log = Log(request_id, State.SUCCESS, f'Successfully added {len(devices_added)} and deleted {len(devices_deleted)} devices to {company.name} at {location.name}.')
         snow_controller.post_log(success_log)
 
 def sync_device_task(device_body: DeviceBody):
