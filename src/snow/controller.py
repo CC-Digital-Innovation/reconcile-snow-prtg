@@ -1,7 +1,6 @@
 from ipaddress import AddressValueError, IPv4Address
 
 import requests
-from loguru import logger
 
 from .models import Company, ConfigItem, Country, Location, Log, Manufacturer
 

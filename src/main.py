@@ -171,125 +171,106 @@ async def custom_snow_exception_handler(request: Request, exc: HTTPException):
 @logger.catch
 @app.post('/syncSite', dependencies=[Depends(authorize)], status_code=status.HTTP_202_ACCEPTED)
 def sync_site(background_tasks: BackgroundTasks,
-        company_name: str = Form(..., description='Name of Company'), # Ellipsis means it is required
-        site_name: str = Form(..., description='Name of Site (Location)'),
-        root_id: int = Form(..., description='ID of root group (not to be confused with Probe Device)'),
+        company: Company = Depends(validated_company),
+        location: Location = Depends(validated_site),
+        root_id: int = Form(..., description='ID of root group (not to be confused with Probe Device)'),  # Ellipsis means it is required
         root_is_site: bool = Form(False, description='Set to true if root group is the site'),
         delete: bool = Form(False, description='If true, delete inactive devices. Defaults to false.'),
         email: str | None = Form(None, description='Sends result to email address.'),
         prtg_client: PrtgClient = Depends(custom_prtg_parameters),
         request_id: str | None = Form(None, description='Optional ID to return as response.')):
-    logger.info(f'Syncing for {company_name} at {site_name}...')
-    logger.debug(f'Company name: {company_name}, Site name: {site_name}, Root ID: {root_id}, Is Root Site: {root_is_site}')
-    # clean str inputs
-    company_name = html.escape(company_name, quote=False)
-    site_name = html.escape(site_name, quote=False)
+    logger.info(f'Syncing for {company.name} at {location.name}...')
     # run long sync process and email in background
-    background_tasks.add_task(sync_site_and_email_task, company_name, site_name, root_id, root_is_site, delete, email, prtg_client, request_id)
+    background_tasks.add_task(sync_site_and_email_task, company, location, root_id, root_is_site, delete, email, prtg_client, request_id)
 
 @logger.catch
 @app.post('/syncAllSites', dependencies=[Depends(authorize)])
-def sync_all_sites(company_name: str = Form(..., description='Name of Company'), # Ellipsis means it is required
-        root_id: int = Form(..., description='ID of root group (not to be confused with Probe Device)'),
+def sync_all_sites(company: Company = Depends(validated_company),
+        root_id: int = Form(..., description='ID of root group (not to be confused with Probe Device)'),   # Ellipsis means it is required
         delete: bool = Form(False, description='If true, delete inactive devices. Defaults to false.'),
         email: str | None = Form(None, description='Sends result to email address.'),
         prtg_client: PrtgClient = Depends(custom_prtg_parameters)):
-    logger.info(f'Syncing all sites for {company_name}...')
-    logger.debug(f'Company name: {company_name}, Root ID: {root_id}')
+    logger.info(f'Syncing all sites for {company.name}...')
+    logger.debug(f'Company name: {company.name}, Root ID: {root_id}')
     # clean str input
-    company_name = html.escape(company_name, quote=False)
+    locations = snow_controller.get_company_locations(company.name)
+    logger.info(f'{len(locations)} locations found in SNOW.')
+
+    prtg_controller = PrtgController(prtg_client)
+    # Get current tree
     try:
+        group = prtg_controller.get_probe(root_id)
+    except ObjectNotFound:
         try:
-            company = snow_controller.get_company_by_name(company_name)
-        except (NoResults, MultipleResults) as e:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e) + f' for company {company_name}')
-        logger.info(f'Company "{company_name} found in SNOW."')
-        locations = snow_controller.get_company_locations(company.name)
-        logger.info(f'{len(locations)} locations found in SNOW.')
+            group = prtg_controller.get_group(root_id)
+        except ObjectNotFound as e:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, str(e))
+    logger.info(f'Group with ID {root_id} found in PRTG.')
+    current_tree = prtg_controller.get_tree(group)
 
-        prtg_controller = PrtgController(prtg_client)
-        # Get current tree
+    devices_added = []
+    devices_deleted = []
+    for location in locations:
+        config_items = snow_controller.get_config_items(company, location)
         try:
-            group = prtg_controller.get_probe(root_id)
-        except ObjectNotFound:
+            expected_tree = get_prtg_tree_adapter(company, location, config_items, snow_controller, False, MIN_DEVICES)
+        except ValueError as e:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+
+        # Sync trees
+        try:
+            curr_added, curr_deleted = sync.sync_trees(expected_tree, current_tree, snow_controller, prtg_controller, delete=delete)
+        except (sync.RootMismatchException, ValueError) as e:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+        devices_added.extend(curr_added)
+        devices_deleted.extend(curr_deleted)
+
+    # No changes found, return
+    if not devices_added and not devices_deleted:
+        return f'No devices added or deleted for {company.name}. Existing devices and their fields may have been updated.'
+
+    # Send Report
+    if email and email_client:
+        logger.info('Sending report to email...')
+        subject = f'XSAutomate: Synced all sites for {company.name}'
+        report_name = f'Successfully Synced all sites for {company.name}'
+        table_title = []
+
+        # Create temporary file for report
+        with SpooledTemporaryFile() as added, SpooledTemporaryFile() as deleted:
+            files = []
+            if devices_added:
+                # build added device report table
+                modeled_added_devices = [report.AddedDeviceModel.from_device(device, prtg_client) for device in devices_added]
+                added_devices_table = [device._asdict() for device in modeled_added_devices]
+                # requires encoding because json module only dumps in str,
+                # requests module recommends opening in binary mode,
+                # and temp files can only be opened in one mode
+                added.write(json.dumps(added_devices_table).encode())
+                # reset position before sending
+                added.seek(0)
+                # add table title
+                table_title.append(f'Devices Added: {len(devices_added)}')
+                # add file
+                files.append(('added.json', added))
+
+            if devices_deleted:
+                # build deleted device report table
+                modeled_deleted_devices = [report.DeletedDeviceModel.from_device(device) for device in devices_deleted]
+                deleted_devices_table = [device._asdict() for device in modeled_deleted_devices]
+                deleted.write(json.dumps(deleted_devices_table).encode())
+                deleted.seek(0)
+                table_title.append(f'Devices Deleted: {len(devices_deleted)}')
+                files.append(('deleted.json', deleted))
             try:
-                group = prtg_controller.get_group(root_id)
-            except ObjectNotFound as e:
-                raise HTTPException(status.HTTP_404_NOT_FOUND, str(e))
-        logger.info(f'Group with ID {root_id} found in PRTG.')
-        current_tree = prtg_controller.get_tree(group)
-
-        devices_added = []
-        devices_deleted = []
-        for location in locations:
-            config_items = snow_controller.get_config_items(company, location)
-            try:
-                expected_tree = get_prtg_tree_adapter(company, location, config_items, snow_controller, False, MIN_DEVICES)
-            except ValueError as e:
-                raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
-
-            # Sync trees
-            try:
-                curr_added, curr_deleted = sync.sync_trees(expected_tree, current_tree, snow_controller, prtg_controller, delete=delete)
-            except (sync.RootMismatchException, ValueError) as e:
-                raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
-            devices_added.extend(curr_added)
-            devices_deleted.extend(curr_deleted)
-
-        # No changes found, return
-        if not devices_added and not devices_deleted:
-            return f'No devices added or deleted for {company_name}. Existing devices and their fields may have been updated.'
-
-        # Send Report
-        if email and email_client:
-            logger.info('Sending report to email...')
-            subject = f'XSAutomate: Synced all sites for {company_name}'
-            report_name = f'Successfully Synced all sites for {company_name}'
-            table_title = []
-
-            # Create temporary file for report
-            with SpooledTemporaryFile() as added, SpooledTemporaryFile() as deleted:
-                files = []
-                if devices_added:
-                    # build added device report table
-                    modeled_added_devices = [report.AddedDeviceModel.from_device(device, prtg_client) for device in devices_added]
-                    added_devices_table = [device._asdict() for device in modeled_added_devices]
-                    # requires encoding because json module only dumps in str,
-                    # requests module recommends opening in binary mode,
-                    # and temp files can only be opened in one mode
-                    added.write(json.dumps(added_devices_table).encode())
-                    # reset position before sending
-                    added.seek(0)
-                    # add table title
-                    table_title.append(f'Devices Added: {len(devices_added)}')
-                    # add file
-                    files.append(('added.json', added))
-
-                if devices_deleted:
-                    # build deleted device report table
-                    modeled_deleted_devices = [report.DeletedDeviceModel.from_device(device) for device in devices_deleted]
-                    deleted_devices_table = [device._asdict() for device in modeled_deleted_devices]
-                    deleted.write(json.dumps(deleted_devices_table).encode())
-                    deleted.seek(0)
-                    table_title.append(f'Devices Deleted: {len(devices_deleted)}')
-                    files.append(('deleted.json', deleted))
-                try:
-                    email_client.email(email, subject, report_name=report_name, table_title=table_title, files=files)
-                except HTTPError as e:
-                    logger.exception('Unhandled error from email API: ' + str(e))
-                    raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR,
-                                        'Sync has successfully completed but an unexpected error occurred when sending the email.')
-            logger.info('Successfully sent report to email.')
-        logger.info(f'Successfully added {len(devices_added)} and deleted {len(devices_deleted)} devices to {company_name}.')
-    except (HTTPException, HTTPError) as e:
-        # Reraise already handled exception
-        logger.error(e)
-        raise e
-    except Exception as e:
-        # Catch all other unhandled exceptions
-        logger.exception('Unhandled error: ' + str(e))
-        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, 'An unexpected error occurred.')
-    return f'Successfully added {len(devices_added)} and deleted {len(devices_deleted)} devices to {company_name}.'
+                email_client.email(email, subject, report_name=report_name, table_title=table_title, files=files)
+            except HTTPError as e:
+                logger.exception('Unhandled error from email API: ' + str(e))
+                raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR,
+                                    'Sync has successfully completed but an unexpected error occurred when sending the email.')
+        logger.info('Successfully sent report to email.')
+    logger.info(f'Successfully added {len(devices_added)} and deleted {len(devices_deleted)} devices to {company.name}.')
+    return f'Successfully added {len(devices_added)} and deleted {len(devices_deleted)} devices to {company.name}.'
 
 @logger.catch
 @app.patch('/syncDevice', status_code=status.HTTP_202_ACCEPTED, dependencies=[Depends(authorize)])
@@ -314,39 +295,47 @@ def build_site(background_tasks: BackgroundTasks,
     background_tasks.add_task(build_site_task, company, location, root_id, root_is_site, prtg_client, request_id)
 
 def build_site_task(company: Company, location: Location, root_id: int, root_is_site: bool, prtg_client: PrtgClient, request_id: str | None):
-    # get SNOW configuration items and build expected tree for only missing IDs
-    config_items = snow_controller.get_config_items(company, location, missing=True)
     try:
-        expected_tree = get_prtg_tree_adapter(company, location, config_items, snow_controller, root_is_site, MIN_DEVICES)
-    except ValueError as e:
-        logger.exception(e)
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, e)
-
-    # get PRTG controller and build current tree
-    prtg_controller = PrtgController(prtg_client)
-    try:
-        group = prtg_controller.get_probe(root_id)
-    except ObjectNotFound:
+        # get SNOW configuration items and build expected tree for only missing IDs
+        config_items = snow_controller.get_config_items(company, location, missing=True)
         try:
-            group = prtg_controller.get_group(root_id)
-        except ObjectNotFound as e:
-            logger.exception(e)
-            raise HTTPException(status.HTTP_404_NOT_FOUND, e)
-    logger.info(f'Group with ID {root_id} found in PRTG.')
-    if not group.name.startswith(expected_tree.prtg_obj.name):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, f'Root ID {root_id} returns object named "{group.name}" but does not start with expected name "{expected_tree.prtg_obj.name}".')
-    current_tree = prtg_controller.get_tree(group)
+            expected_tree = get_prtg_tree_adapter(company, location, config_items, snow_controller, root_is_site, MIN_DEVICES)
+        except ValueError as e:
+            log_error_console_and_snow(request_id, str(e))
+            raise e
 
-    devices_added = sync.build_only_tree(expected_tree, current_tree, snow_controller, prtg_controller)
+        # get PRTG controller and build current tree
+        prtg_controller = PrtgController(prtg_client)
+        try:
+            group = prtg_controller.get_probe(root_id)
+        except ObjectNotFound:
+            try:
+                group = prtg_controller.get_group(root_id)
+            except ObjectNotFound as e:
+                log_error_console_and_snow(request_id, str(e))
+                raise e
+        logger.info(f'Group with ID {root_id} found in PRTG.')
+        if not group.name.startswith(expected_tree.prtg_obj.name):
+            msg = f'Root ID {root_id} returns object named "{group.name}" but does not start with expected name "{expected_tree.prtg_obj.name}".'
+            log_error_console_and_snow(request_id, msg)
+            raise ValueError(msg)
+        current_tree = prtg_controller.get_tree(group)
 
-    if devices_added:
-        msg = f'Successfully added {len(devices_added)} devices to {company.name} at {location.name}.'
-    else:
-        msg = f'No devices added or deleted for {company.name} at {location.name}.'
-    logger.info(msg)
-    # respond to snow
-    if request_id:
-        snow_controller.post_log(Log(request_id, State.SUCCESS, msg))
+        devices_added = sync.build_only_tree(expected_tree, current_tree, snow_controller, prtg_controller)
+
+        if devices_added:
+            msg = f'Successfully added {len(devices_added)} devices to {company.name} at {location.name}.'
+        else:
+            msg = f'No devices added or deleted for {company.name} at {location.name}.'
+        logger.info(msg)
+        # respond to snow
+        if request_id:
+            snow_controller.post_log(Log(request_id, State.SUCCESS, msg))
+    except Exception as e:
+        logger.exception(e)
+        log_error_console_and_snow(request_id, f'Unhandled exception: {e}')
+        raise e
+
 
 def log_error_console_and_snow(request_id: str | None, error_msg: str):
     logger.error(error_msg)
@@ -354,23 +343,11 @@ def log_error_console_and_snow(request_id: str | None, error_msg: str):
         error_log = Log(request_id, State.FAILED, error_msg)
         snow_controller.post_log(error_log)
 
-def sync_site_and_email_task(company_name, site_name, root_id, root_is_site, delete, email, prtg_client, request_id):
+def sync_site_and_email_task(company, location, root_id, root_is_site, delete, email, prtg_client, request_id):
     """to be ran using FastAPI's BackgroundTasks"""
     # global try to log unhandled exceptions
     try:
         # Get expected tree based on company and location
-        try:
-            company = snow_controller.get_company_by_name(company_name)
-        except (NoResults, MultipleResults) as e:
-            log_error_console_and_snow(request_id, str(e) + f' for company {company_name}')
-            return  # simply return since it's a background task
-        logger.info(f'Company "{company_name} found in SNOW."')
-        try:
-            location = snow_controller.get_location_by_name(site_name)
-        except (NoResults, MultipleResults) as e:
-            log_error_console_and_snow(request_id, str(e) + f' for location {site_name}')
-            return
-        logger.info(f'Location "{site_name}" found in SNOW.')
         config_items = snow_controller.get_config_items(company, location)
         try:
             expected_tree = get_prtg_tree_adapter(company, location, config_items, snow_controller, root_is_site, MIN_DEVICES)
@@ -403,7 +380,7 @@ def sync_site_and_email_task(company_name, site_name, root_id, root_is_site, del
 
         # No changes found, return
         if not devices_added and not devices_deleted:
-            msg = f'No devices added or deleted for {company_name} at {site_name}. Existing devices and their fields may have been updated.'
+            msg = f'No devices added or deleted for {company.name} at {location.name}. Existing devices and their fields may have been updated.'
             logger.info(msg)
             if request_id is not None:
                 no_change_log = Log(request_id, State.SUCCESS, msg)
@@ -413,8 +390,8 @@ def sync_site_and_email_task(company_name, site_name, root_id, root_is_site, del
         # Send Report
         if email and email_client:
             logger.info('Sending report to email...')
-            subject = f'XSAutomate: Synced {company_name} at {site_name}'
-            report_name = f'Successfully Synced {company_name} at {site_name}'
+            subject = f'XSAutomate: Synced {company.name} at {location.name}'
+            report_name = f'Successfully Synced {company.name} at {location.name}'
             table_title = []
 
             # Create temporary file for report
@@ -448,82 +425,94 @@ def sync_site_and_email_task(company_name, site_name, root_id, root_is_site, del
                 except HTTPError as e:
                     logger.exception('Unhandled error from email API: ' + str(e))
                     if request_id is not None:
-                        success_except_email_log = Log(request_id, State.SUCCESS, f'Successfully added {len(devices_added)} and deleted {len(devices_deleted)} devices to {company_name} at {site_name}, but an unexpected error occurred when sending the email.')
+                        success_except_email_log = Log(request_id, State.SUCCESS, f'Successfully added {len(devices_added)} and deleted {len(devices_deleted)} devices to {company.name} at {location.name}, but an unexpected error occurred when sending the email.')
                         snow_controller.post_log(success_except_email_log)
                     return
             logger.info('Successfully sent report to email.')
-        logger.info(f'Successfully added {len(devices_added)} and deleted {len(devices_deleted)} devices to {company_name} at {site_name}.')
+        logger.info(f'Successfully added {len(devices_added)} and deleted {len(devices_deleted)} devices to {company.name} at {location.name}.')
     except Exception as e:
         # Catch all other unhandled exceptions
-        logger.exception('Unhandled error')
+        logger.exception(e)
         log_error_console_and_snow(request_id, 'Unhandled error: ' + str(e))
         return
     if request_id is not None:
-        success_log = Log(request_id, State.SUCCESS, f'Successfully added {len(devices_added)} and deleted {len(devices_deleted)} devices to {company_name} at {site_name}.')
+        success_log = Log(request_id, State.SUCCESS, f'Successfully added {len(devices_added)} and deleted {len(devices_deleted)} devices to {company.name} at {location.name}.')
         snow_controller.post_log(success_log)
 
 def sync_device_task(device_body: DeviceBody):
     """to be ran using FastAPI's BackgroundTasks"""
-    auth = BasicToken(device_body.prtg_api_key)
-    client = PrtgClient(device_body.prtg_url, auth)
-    prtg_controller = PrtgController(client)
-    logger.debug(f'PRTG URL: {device_body.prtg_url}')
-    logger.debug(f'Device ID from payload: {device_body.device_id}.')
-    ci = snow_controller.get_config_item(device_body.device_id)
-
-    if ci.company is None or ci.location is None:
-        log_error_console_and_snow(device_body.request_id, f'Cannot sync device {ci.name}. Missing company or location information in SNOW.')
-        return  # simply return since it's a background task
-
-    # get root group to avoid searching for it
     try:
-        root = prtg_controller.get_probe(device_body.root_id)
-    except ObjectNotFound:
+        auth = BasicToken(device_body.prtg_api_key)
+        client = PrtgClient(device_body.prtg_url, auth)
+        prtg_controller = PrtgController(client)
+        logger.debug(f'PRTG URL: {device_body.prtg_url}')
+        logger.debug(f'Device ID from payload: {device_body.device_id}.')
+        ci = snow_controller.get_config_item(device_body.device_id)
+
+        if ci.company is None or ci.location is None:
+            log_error_console_and_snow(device_body.request_id, f'Cannot sync device {ci.name}. Missing company or location information in SNOW.')
+            return  # simply return since it's a background task
+
+        # get root group to avoid searching for it
         try:
-            root = prtg_controller.get_group(device_body.root_id)
+            root = prtg_controller.get_probe(device_body.root_id)
         except ObjectNotFound:
-            log_error_console_and_snow(device_body.request_id, f'Cannot find root probe/group with root ID {device_body.root_id}.')
+            try:
+                root = prtg_controller.get_group(device_body.root_id)
+            except ObjectNotFound:
+                log_error_console_and_snow(device_body.request_id, f'Cannot find root probe/group with root ID {device_body.root_id}.')
+                return
+
+        # get expected device and its path
+        expected_node = get_prtg_tree_adapter(ci.company, ci.location, [ci], snow_controller, min_device=MIN_DEVICES)
+        device_node = anytree.find(expected_node, filter_=lambda x: isinstance(x.prtg_obj, Device))
+        device_path = device_node.path
+
+        try:
+            device = sync.sync_device(device_path, prtg_controller, snow_controller, root_group=root)
+        except (ValueError, sync.RootMismatchException) as e:
+            log_error_console_and_snow(device_body.request_id, str(e))
             return
-
-    # get expected device and its path
-    expected_node = get_prtg_tree_adapter(ci.company, ci.location, [ci], snow_controller, min_device=MIN_DEVICES)
-    device_node = anytree.find(expected_node, filter_=lambda x: isinstance(x.prtg_obj, Device))
-    device_path = device_node.path
-
-    try:
-        device = sync.sync_device(device_path, prtg_controller, snow_controller, root_group=root)
-    except (ValueError, sync.RootMismatchException) as e:
-        log_error_console_and_snow(device_body.request_id, str(e))
+    except Exception as e:
+        # Catch all other unhandled exceptions
+        logger.exception(e)
+        log_error_console_and_snow(device_body.request_id, 'Unhandled error: ' + str(e))
         return
     if device_body.request_id is not None:
         success_log = Log(device_body.request_id, State.SUCCESS, f'Successfully created/updated {device.name} with ID {device.id}.')
         snow_controller.post_log(success_log)
 
 def delete_device_task(sys_id: str, prtg_url: str, prtg_api_key: str, request_id: str | None):
-    # build PRTG controller from parameters
-    auth = BasicToken(prtg_api_key)
-    client = PrtgClient(prtg_url, auth)
-    prtg_controller = PrtgController(client)
-    logger.debug(f'PRTG URL: {prtg_url}')
-    logger.debug(f'Device ID from payload: {sys_id}.')
+    try:
+        # build PRTG controller from parameters
+        auth = BasicToken(prtg_api_key)
+        client = PrtgClient(prtg_url, auth)
+        prtg_controller = PrtgController(client)
+        logger.debug(f'PRTG URL: {prtg_url}')
+        logger.debug(f'Device ID from payload: {sys_id}.')
 
-    try:
-        ci = snow_controller.get_config_item(sys_id)
-    except (ValueError, TypeError) as e:
-        log_error_console_and_snow(request_id, str(e))
+        try:
+            ci = snow_controller.get_config_item(sys_id)
+        except (ValueError, TypeError) as e:
+            log_error_console_and_snow(request_id, str(e))
+            return
+        if ci.prtg_id is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, f'Cannot find PRTG ID for device {ci.name}.')
+        try:
+            prtg_device = prtg_controller.get_device(ci.prtg_id)
+            prtg_controller.delete_object(prtg_device)
+        except ValueError as e:
+            log_error_console_and_snow(request_id, str(e))
+            return
+        ci.prtg_id = None
+        snow_controller.update_config_item(ci)
+        msg = f'Successfully deleted {prtg_device.name} with ID {prtg_device.id}.'
+        logger.info(msg)
+    except Exception as e:
+        # Catch all other unhandled exceptions
+        logger.exception(e)
+        log_error_console_and_snow(request_id, 'Unhandled error: ' + str(e))
         return
-    if ci.prtg_id is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f'Cannot find PRTG ID for device {ci.name}.')
-    try:
-        prtg_device = prtg_controller.get_device(ci.prtg_id)
-        prtg_controller.delete_object(prtg_device)
-    except ValueError as e:
-        log_error_console_and_snow(request_id, str(e))
-        return
-    ci.prtg_id = None
-    snow_controller.update_config_item(ci)
-    msg = f'Successfully deleted {prtg_device.name} with ID {prtg_device.id}.'
-    logger.info(msg)
     if request_id is not None:
         success_log = Log(request_id, State.SUCCESS, msg)
         snow_controller.post_log(success_log)
