@@ -1,9 +1,14 @@
 .git/
 .gitignore
 venv/
+.env
 .vscode/
 .theia/
 __pycache__/
+*.pyc
+dist/
+build/
+tests/
 README.md
 LICENSE
 Dockerfile
