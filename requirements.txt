@@ -17,7 +17,7 @@ pyprtg-api==0.0.20
 pysnow==0.7.17
 python-dotenv==1.0.1
 python-magic==0.4.27
-python-multipart==0.0.18
+python-multipart==0.0.22
 pytz==2019.3
 PyYAML==6.0.2
 requests==2.32.4
