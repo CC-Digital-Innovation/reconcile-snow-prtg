@@ -1,36 +1,55 @@
-FROM python:3.13-slim AS builder
-
-LABEL org.opencontainers.image.authors="Jonny Le <jonny.le@computacenter.com>" \
-      org.opencontainers.image.source="https://github.com/CC-Digital-Innovation/reconcile-snow-prtg"
-
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+# Builder stage.
+FROM python:3.14.7-alpine3.24 AS builder
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential gcc \
-    && rm -rf /var/lib/apt/lists/*
+# Set environment variables to reduce writing to disk and improve performance.
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
 
+# Upgrade pip and install requirements.
 COPY requirements.txt .
-RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+RUN python -m pip install pip==26.2.1 && \
+    python -m pip install --no-cache-dir -r requirements.txt
 
-COPY . .
 
-FROM python:3.13-slim AS runtime
+# Runtime stage.
+FROM python:3.14.7-alpine3.24 AS runtime
 
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+LABEL org.opencontainers.image.authors="Anthony Farina"
 
 WORKDIR /app
 
-RUN useradd -r -u 10001 appuser
+# Patch alpine packages.
+RUN apk update && apk upgrade --no-cache
 
-COPY --from=builder /install /usr/local
-COPY --from=builder /app /app
+# Set environment variables to reduce writing to disk and improve performance.
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
 
-USER appuser
+# Copy app's dependencies.
+COPY --from=builder /usr/local/lib/python3.14/site-packages /usr/local/lib/python3.14/site-packages
 
+# Remove pip from the runtime image to reduce size and vulnerabilities.
+RUN rm -rf /usr/local/lib/python3.14/site-packages/pip
+
+# Let Python know where the app's dependencies are located.
+ENV PYTHONPATH="/usr/local/lib/python3.14/site-packages"
+
+# Create non-root user and group.
+RUN addgroup -S -g 10015 appgroup && \
+    adduser -S -u 10014 -G appgroup appuser
+
+# Copy source code.
+COPY ./src .
+
+# Set non-root user and group to run the app via their UID and GID.
+USER 10014:10015
+
+# Expose ports for the app.
 EXPOSE 80
 
-CMD [ "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "80" ]
+# Set the entry for the container to run the app.
+ENTRYPOINT ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "80"]
