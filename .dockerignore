@@ -1,17 +1,6 @@
-.git/
-.gitignore
-venv/
-.env
-.vscode/
-.theia/
-__pycache__/
-*.pyc
-dist/
-build/
-tests/
-README.md
-LICENSE
-Dockerfile
-docker-compose.yaml
-docker-compose.yml
-kubernetes/
+# Ignore everything...
+*
+
+# ...except these files/directories
+!requirements.txt
+!/src
