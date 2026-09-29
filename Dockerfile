@@ -38,6 +38,10 @@ RUN rm -rf /usr/local/lib/python3.14/site-packages/pip
 # Let Python know where the app's dependencies are located.
 ENV PYTHONPATH="/usr/local/lib/python3.14/site-packages"
 
+# Create non-root user and group.
+RUN addgroup -S -g 10015 appgroup && \
+    adduser -S -u 10014 -G appgroup appuser
+
 # Copy source code and make the local user own the /app directory and all the files within it.
 # This allows the user to write files to the system.
 RUN chown -R appuser:appgroup /app
