@@ -59,6 +59,29 @@ jobs:
           PR_BASE: ${{ github.event.pull_request.base.ref }}
         run: git rev-parse --verify "refs/remotes/origin/${PR_BASE}^{commit}"
 
+      - name: Ensure scanner signature verification dependencies
+        shell: bash
+        run: |
+          if command -v gpg >/dev/null && command -v dirmngr >/dev/null; then
+            exit 0
+          fi
+          if ! command -v apt-get >/dev/null; then
+            echo "::error::Install gnupg and dirmngr in the ARC runner image; automatic installation requires apt-get."
+            exit 1
+          fi
+          elevate=()
+          if [[ "$EUID" -ne 0 ]]; then
+            if ! command -v sudo >/dev/null; then
+              echo "::error::Install gnupg and dirmngr in the ARC runner image; automatic installation requires root or passwordless sudo."
+              exit 1
+            fi
+            elevate=(sudo -n)
+          fi
+          "${elevate[@]}" apt-get update
+          "${elevate[@]}" apt-get install --yes --no-install-recommends gnupg dirmngr ca-certificates
+          gpg --version
+          dirmngr --version
+
       # PR and branch properties must never be passed in the same scan.
       - name: Analyze pull request and enforce quality gate
         if: github.event_name == 'pull_request'
