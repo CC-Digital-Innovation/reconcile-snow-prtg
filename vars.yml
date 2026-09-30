@@ -1,6 +1,9 @@
-repo: https://github.com/CC-Digital-Innovation/reconcile-snow-prtg.git
-ssh_url: git@github.com:CC-Digital-Innovation/reconcile-snow-prtg.git
+read_repo: https://github.com/CC-Digital-Innovation/reconcile-snow-prtg
+read_ssh_url: git@github.com:CC-Digital-Innovation/reconcile-snow-prtg.git
+bump_repo: https://github.com/CC-Digital-Innovation/k3sprod
+bump_ssh_url: git@github.com:CC-Digital-Innovation/k3sprod.git
 branch: main
 project_root: src
 image: xsautomate
+manifest_path: xsautomate/mon01/deployment.yml
 pipeline: xsautomate

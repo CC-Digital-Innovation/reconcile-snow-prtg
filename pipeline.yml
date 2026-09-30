@@ -4,7 +4,7 @@ resources:
     type: git
     icon: github
     source:
-      uri: ((repo))
+      uri: ((read_repo))
       branch: ((branch))
       username: ((git.username))
       password: ((git.password))
@@ -16,7 +16,7 @@ resources:
     type: git
     icon: github
     source:
-      uri: ((repo))
+      uri: ((read_repo))
       branch: ((branch))
       username: ((git.username))
       password: ((git.password))
@@ -30,7 +30,7 @@ resources:
     type: git
     icon: github
     source:
-      uri: ((repo))
+      uri: ((bump_repo))
       branch: ((branch))
       username: ((git.username))
       password: ((git.password))
@@ -126,7 +126,6 @@ jobs:
         params:
           image: image/image.tar
           version: ((.:version_num))
-          bump_aliases: true
       - get: bump-repo
       - task: bump-with-yq
         config:
@@ -145,7 +144,7 @@ jobs:
               - -exc
               - |
                 cd bump-repo
-                yq -i '.spec.template.spec.containers[0].image = "((harbor.repository))/((image)):((.:version_num))"' ((manifest_path))
+                yq -ie '.spec.template.spec.containers[0].image = "((harbor.repository))/((image)):((.:version_num))"' ((manifest_path))
             user: root
       - task: git-commit-bump
         config:
