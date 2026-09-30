@@ -1,0 +1,89 @@
+name: SonarQube
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+  push:
+    branches: ['**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('branch-{0}', github.ref) }}
+  cancel-in-progress: true
+
+jobs:
+  sonarqube:
+    name: SonarQube analysis
+    # Evaluate trust before scheduling a job on the private ARC runners.
+    # Manual dispatch is supported for branches, not tags.
+    if: >-
+      github.actor != 'dependabot[bot]' &&
+      (github.event_name == 'pull_request' || github.ref_type == 'branch') &&
+      (github.event_name != 'pull_request' ||
+        (github.event.pull_request.head.repo.full_name == github.repository &&
+         github.event.pull_request.user.login != 'dependabot[bot]'))
+    runs-on: ${{ vars.ARC_RUNNER_SCALE_SET }}
+    timeout-minutes: 20
+    env:
+      SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL }}
+      SONAR_PROJECT_KEY: ${{ vars.SONAR_PROJECT_KEY }}
+    steps:
+      - name: Validate SonarQube configuration
+        shell: bash
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          missing=0
+          for setting in SONAR_HOST_URL SONAR_PROJECT_KEY SONAR_TOKEN; do
+            if [[ -z "${!setting}" ]]; then
+              echo "::error::Required GitHub variable or secret $setting is not configured."
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - name: Check out analysis revision and full history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify PR target branch is available
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.ref }}
+        run: git rev-parse --verify "refs/remotes/origin/${PR_BASE}^{commit}"
+
+      # PR and branch properties must never be passed in the same scan.
+      - name: Analyze pull request and enforce quality gate
+        if: github.event_name == 'pull_request'
+        uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: >-
+            "-Dsonar.projectKey=${{ env.SONAR_PROJECT_KEY }}"
+            "-Dsonar.pullrequest.key=${{ github.event.pull_request.number }}"
+            "-Dsonar.pullrequest.branch=${{ github.event.pull_request.head.ref }}"
+            "-Dsonar.pullrequest.base=${{ github.event.pull_request.base.ref }}"
+            "-Dsonar.scm.revision=${{ github.event.pull_request.head.sha }}"
+            -Dsonar.qualitygate.wait=true
+            -Dsonar.qualitygate.timeout=300
+
+      - name: Analyze branch and enforce quality gate
+        if: github.event_name != 'pull_request'
+        uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: >-
+            "-Dsonar.projectKey=${{ env.SONAR_PROJECT_KEY }}"
+            "-Dsonar.branch.name=${{ github.ref_name }}"
+            "-Dsonar.scm.revision=${{ github.sha }}"
+            -Dsonar.qualitygate.wait=true
+            -Dsonar.qualitygate.timeout=300
