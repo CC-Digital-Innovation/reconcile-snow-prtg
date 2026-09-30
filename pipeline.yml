@@ -22,9 +22,18 @@ resources:
       password: ((git.password))
       # determines what files trigger the pipeline, replace with "ignore_paths" if more files need to trigger
       paths:
-        - ((project_root))  # replace with source file(s) if no project root directory
+        - ((project_root))  # remove if no project root directory
         - Dockerfile
         - requirements.txt
+  # resource for writing to repository; write-only to avoid retriggering pipeline
+  - name: bump-repo
+    type: git
+    icon: github
+    source:
+      uri: ((repo))
+      branch: ((branch))
+      username: ((git.username))
+      password: ((git.password))
   # resource of where to push image
   - name: registry
     type: registry-image
@@ -42,7 +51,6 @@ resources:
       branch: ((branch))
       private_key: ((git.private_key))
       file: version
-      initial_version: 0.0.1
   # resource to send to slack
   - name: notifier
     type: slack-alert
@@ -53,7 +61,7 @@ resources:
 # add slack resource
 resource_types:
   - name: slack-alert
-    type: docker-image
+    type: registry-image
     source:
       repository: arbourd/concourse-slack-alert-resource
 
@@ -119,6 +127,50 @@ jobs:
           image: image/image.tar
           version: ((.:version_num))
           bump_aliases: true
+      - get: bump-repo
+      - task: bump-with-yq
+        config:
+          platform: linux
+          image_resource:
+            type: registry-image
+            source:
+              repository: docker.io/mikefarah/yq
+          inputs:
+            - name: bump-repo
+          outputs:
+            - name: bump-repo
+          run:
+            path: sh
+            args:
+              - -exc
+              - |
+                cd bump-repo
+                yq -i '.spec.template.spec.containers[0].image = "((harbor.repository))/((image)):((.:version_num))"' ((manifest_path))
+            user: root
+      - task: git-commit-bump
+        config:
+          platform: linux
+          image_resource:
+            type: registry-image
+            source:
+              repository: docker.io/alpine/git
+          inputs:
+            - name: bump-repo
+          outputs:
+            - name: bump-repo
+          run:
+            path: sh
+            args:
+              - -exc
+              - |
+                cd bump-repo
+                git config --global user.email '<>'
+                git config --global user.name "Concourse Bot"
+                git add ((manifest_path))
+                git commit -m 'bump to ((.:version_num))'
+      - put: bump-repo
+        params:
+          repository: bump-repo
       - put: version
         params:
           file: version/version
