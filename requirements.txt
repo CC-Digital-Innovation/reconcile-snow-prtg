@@ -1,8 +1,9 @@
 anytree==2.13.0
-fastapi==0.141.1
+certifi==2026.10.19
+fastapi==0.161.1
 loguru==0.7.3
-pydantic==2.13.5
-pyprtg-api==0.0.20
+pydantic==2.14.1
+pyprtg-api==0.0.21
 pysnow==0.7.17
 python-dotenv==1.2.3
 python-multipart==0.0.32

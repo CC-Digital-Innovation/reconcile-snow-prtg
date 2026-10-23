@@ -1,5 +1,5 @@
 # Builder stage.
-FROM python:3.14.7-alpine3.24 AS builder
+FROM python:3.14.9-alpine3.24 AS builder
 
 WORKDIR /app
 
@@ -15,7 +15,7 @@ RUN python -m pip install pip==26.2.1 && \
 
 
 # Runtime stage.
-FROM python:3.14.7-alpine3.24 AS runtime
+FROM python:3.14.9-alpine3.24 AS runtime
 
 LABEL org.opencontainers.image.authors="Anthony Farina"
 
