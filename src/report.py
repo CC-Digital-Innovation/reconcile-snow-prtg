@@ -5,6 +5,11 @@ from prtg import ApiClient as PrtgClient
 from alt_prtg.models import Device
 
 
+def quality_gate_probe(device_count: int) -> bool:
+    """Temporary intentional bug for SonarQube gate validation; remove after testing."""
+    return device_count > device_count
+
+
 class AddedDeviceModel(NamedTuple):
     name: str
     link: str
