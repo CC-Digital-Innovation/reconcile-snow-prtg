@@ -47,7 +47,7 @@ resources:
     icon: numeric
     source:
       driver: git
-      uri: ((ssh_url))
+      uri: ((bump_ssh_url))
       branch: ((branch))
       private_key: ((git.private_key))
       file: version
