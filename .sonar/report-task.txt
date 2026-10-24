@@ -1,0 +1,6 @@
+projectKey=CC-Digital-Innovation_reconcile-snow-prtg_ff2a559f-8667-4fce-91ca-9d9a042997b4
+serverUrl=https://codequality-dev.pscp-css.support
+serverVersion=26.9.0.129388
+dashboardUrl=https://codequality-dev.pscp-css.support/dashboard?id=CC-Digital-Innovation_reconcile-snow-prtg_ff2a559f-8667-4fce-91ca-9d9a042997b4
+ceTaskId=6e09a51b-2c69-40da-9a1d-f5122f06804c
+ceTaskUrl=https://codequality-dev.pscp-css.support/api/ce/task?id=6e09a51b-2c69-40da-9a1d-f5122f06804c
