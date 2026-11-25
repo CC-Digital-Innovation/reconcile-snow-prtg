@@ -27,6 +27,15 @@ def _one(records: list[dict]) -> dict:
 
 class ApiClient:
     def __init__(self, instance, username, password, ssl=True, timeout=60):
+        """Client for the ServiceNow REST API using basic auth.
+
+        Args:
+            instance (str): instance name, e.g. "example" for example.service-now.com
+            username (str): ServiceNow username
+            password (str): ServiceNow password
+            ssl (bool, optional): use HTTPS. Defaults to True.
+            timeout (int, optional): request timeout in seconds. Defaults to 60.
+        """
         self.instance = instance
         self.ssl = ssl
         self.timeout = timeout
