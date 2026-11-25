@@ -110,7 +110,7 @@ class ApiClient:
     def get_ci(self, ci_id: str):
         records = self._get('/table/cmdb_ci', f'sys_id={ci_id}', display_value=True)
         if not records:
-            raise ValueError(f'No results found for sys_id {ci_id}.')
+            raise NoResults(f'No results found for sys_id {ci_id}.')
         return records[0]
 
     def get_cis_filtered(self, company_name, location_name, category, stage):
