@@ -1,0 +1,15 @@
+# Direct dependencies only. Edit this file, then regenerate requirements.txt:
+#   pip-compile requirements.in -o requirements.txt --generate-hashes --strip-extras
+# Do not edit requirements.txt by hand.
+
+anytree>=2.13.0
+fastapi>=0.161.1
+loguru>=0.7.3
+pydantic>=2.14.1
+python-dotenv>=1.2.3
+python-multipart>=0.0.32
+requests>=2.34.2
+uvicorn>=0.54.0
+
+# Small, rarely-updated library pinned exactly so upgrades are deliberate.
+pyprtg-api==0.0.21
