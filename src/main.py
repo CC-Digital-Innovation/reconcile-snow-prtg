@@ -18,7 +18,6 @@ from prtg import ApiClient as PrtgClient
 from prtg.auth import BasicAuth, BasicPasshash, BasicToken
 from prtg.exception import ObjectNotFound
 from pydantic import SecretStr
-from pysnow.exceptions import MultipleResults, NoResults
 from requests.exceptions import HTTPError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -30,6 +29,7 @@ from alt_prtg.models import Device
 from snow import ApiClient as SnowClient
 from snow import SnowController
 from snow.adapter import get_prtg_tree_adapter
+from snow.exceptions import MultipleResults, NoResults
 from snow.models import Company, DeviceBody, Location, Log, State
 
 # load secrets from .env

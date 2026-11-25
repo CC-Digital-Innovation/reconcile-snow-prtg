@@ -1,144 +1,130 @@
-import pysnow
 import requests
 from loguru import logger
-from pysnow.exceptions import NoResults
+
+from .exceptions import MultipleResults, NoResults
+
+# Maximum records returned per query (no pagination is performed).
+RECORD_LIMIT = 10000
+
+# ServiceNow encoded query for active configuration items monitored by PRTG.
+ACTIVE_CI_QUERY = (
+    'install_status=1'              # Installed
+    '^ORinstall_status=101'         # Active
+    '^ORinstall_status=109'         # Duplicate Active
+    '^ORinstall_status=107'         # Duplicate installed
+    '^u_prtg_implementation=true'
+)
 
 
-def get_active_ci_query() -> pysnow.QueryBuilder:
-    """Return a new query for active configuration items.
-
-    Returns:
-        QueryBuilder
-    """
-    return (
-        pysnow.QueryBuilder()
-        .field('install_status').equals('1')            # Installed
-        .OR().field('install_status').equals('101')     # Active
-        .OR().field('install_status').equals('109')     # Duplicate Active
-        .OR().field('install_status').equals('107')     # Duplicate installed
-        .AND().field('u_prtg_implementation').equals('true')
-    )
+def _one(records: list[dict]) -> dict:
+    """Return the only record in a result, or raise if there are zero or several."""
+    if not records:
+        raise NoResults('No records found')
+    if len(records) > 1:
+        raise MultipleResults('Expected single-record result, got multiple')
+    return records[0]
 
 
 class ApiClient:
-    def __init__(self, instance, username, password, ssl=True):
+    def __init__(self, instance, username, password, ssl=True, timeout=60):
         self.instance = instance
         self.ssl = ssl
+        self.timeout = timeout
         self._username = username
         self._password = password
-        self.client = pysnow.Client(instance=instance, user=username, password=password, use_ssl=ssl)
+        protocol = 'https' if ssl else 'http'
+        self.base_url = f'{protocol}://{instance}.service-now.com'
+        self.session = requests.Session()
+        self.session.auth = (username, password)
+        self.session.headers.update({
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+        })
+
+    def _request(self, method, api_path, params=None, payload=None) -> list[dict]:
+        """Send a request to the REST API (/api/now) and return the `result` as a list of records."""
+        url = f'{self.base_url}/api/now{api_path}'
+        response = self.session.request(method, url, params=params, json=payload, timeout=self.timeout)
+        response.raise_for_status()
+        result = response.json()['result']
+        return result if isinstance(result, list) else [result]
+
+    def _get(self, api_path, query, display_value=False, **extra_params) -> list[dict]:
+        params = {
+            'sysparm_query': query,
+            'sysparm_limit': RECORD_LIMIT,
+            'sysparm_display_value': 'true' if display_value else 'false',
+            **extra_params,
+        }
+        return self._request('GET', api_path, params=params)
 
     def get_u_category_labels(self):
         '''Returns a list of all device categories'''
-        choices = self.client.resource(api_path='/table/sys_choice')
-        categories = choices.get(query={'element': 'u_category'})
-        return sorted({category['label'] for category in categories.all()})
+        categories = self._get('/table/sys_choice', 'element=u_category')
+        return sorted({category['label'] for category in categories})
 
     def get_u_used_for_labels(self):
         '''Returns a list of all u_used_for choices'''
-        choices = self.client.resource(api_path='/table/sys_choice')
-        categories = choices.get(query={'element': 'u_used_for'})
-        return sorted({category['label'] for category in categories.all()})
+        categories = self._get('/table/sys_choice', 'element=u_used_for')
+        return sorted({category['label'] for category in categories})
 
     def get_companies(self):
         '''Returns a list of all companies'''
-        companies = self.client.resource(api_path='/table/core_company')
-        query = (
-            pysnow.QueryBuilder()
-            .field('active').equals('true')
-            .AND().field('name').order_ascending()
-        )
-        response = companies.get(query=query)
-        return response.all()
+        return self._get('/table/core_company', 'active=true^ORDERBYname')
 
     def get_company_sites(self, company_name):
         '''Return all sites of a company'''
-        sites = self.client.resource(api_path='/table/cmn_location')
-        query = (
-            pysnow.QueryBuilder()
-            .field('u_active').equals('true')
-            .AND().field('company.name').equals(company_name)
-        )
-        response = sites.get(query=query)
-        return response.all()
+        return self._get('/table/cmn_location', f'u_active=true^company.name={company_name}')
 
     def get_company(self, company_name):
         '''Return a company record
-        
+
         Raise
         -----
-        pysnow.exceptions.MultipleResults
+        snow.exceptions.MultipleResults
             More than one record found
 
-        pysnow.exceptions.NoResults
+        snow.exceptions.NoResults
             Could not find record
         '''
-        companies = self.client.resource(api_path='/table/core_company')
-        query = (
-            pysnow.QueryBuilder()
-            .field('active').equals('true')
-            .AND().field('name').equals(company_name)
-        )
-        response = companies.get(query=query, stream=True)
-        return response.one()
+        return _one(self._get('/table/core_company', f'active=true^name={company_name}'))
 
     def get_location(self, location_name):
         '''Return a site location
-        
+
         Raise
         -----
-        pysnow.exceptions.MultipleResults
+        snow.exceptions.MultipleResults
             More than one record found
 
-        pysnow.exceptions.NoResults
+        snow.exceptions.NoResults
             Could not find record
         '''
-        locations = self.client.resource(api_path='/table/cmn_location')
-        query = (
-            pysnow.QueryBuilder()
-            .field('u_active').equals('true')
-            .AND().field('name').equals(location_name)
-        )
-        response = locations.get(query=query, stream=True)
-        return response.one()
+        return _one(self._get('/table/cmn_location', f'u_active=true^name={location_name}'))
 
     def get_company_locations(self, company_name):
         '''Return a list of all locations of a company'''
-        locations = self.client.resource(api_path='/table/cmn_location')
-        query = (
-            pysnow.QueryBuilder()
-            .field('u_active').equals('true')
-            .AND().field('company.name').equals(company_name)
-            .AND().field('state').order_ascending()
-            .AND().field('city').order_ascending()
-        )
-        response = locations.get(query=query)
-        return response.all()
+        query = f'u_active=true^company.name={company_name}^ORDERBYstate^ORDERBYcity'
+        return self._get('/table/cmn_location', query)
 
     def get_ci(self, ci_id: str):
-        cis = self.client.resource(api_path='/table/cmdb_ci')
-        cis.parameters.display_value = True
-        query = pysnow.QueryBuilder().field('sys_id').equals(ci_id)
-        response = cis.get(query=query)
-        try:
-            return response.one()
-        except NoResults:
+        records = self._get('/table/cmdb_ci', f'sys_id={ci_id}', display_value=True)
+        if not records:
             raise ValueError(f'No results found for sys_id {ci_id}.')
+        return records[0]
 
     def get_cis_filtered(self, company_name, location_name, category, stage):
         '''Returns a list of all devices filtered by company, location, and category'''
-        cis = self.client.resource(api_path='/table/cmdb_ci')
         query = (
-            get_active_ci_query()
-            .AND().field('company.name').equals(company_name)
-            .AND().field('location.name').equals(location_name)
-            .AND().field('u_category').equals(category)
-            .AND().field('u_used_for').equals(stage)
-            .AND().field('u_prtg_instrumentation').equals('false')
-            .AND().field('name').order_ascending()
+            f'{ACTIVE_CI_QUERY}'
+            f'^company.name={company_name}'
+            f'^location.name={location_name}'
+            f'^u_category={category}'
+            f'^u_used_for={stage}'
+            '^u_prtg_instrumentation=false'
+            '^ORDERBYname'
         )
-        response = cis.get(query=query)
-        return response.all()
+        return self._get('/table/cmdb_ci', query)
 
     def get_cis_by_site(self, company_name, location_name, internal = None, missing = False):
         """Returns a list of all configuration items from a company site
@@ -152,33 +138,18 @@ class ApiClient:
         Returns:
             list[dict]: list of configuration item details
         """
-        cis = self.client.resource(api_path='/table/cmdb_ci')
-        cis.parameters.display_value = True
-        query = (
-            get_active_ci_query()
-            .AND().field('company.name').equals(company_name)
-            .AND().field('location.name').equals(location_name)
-            .AND().field('name').order_ascending()
-        )
+        query = f'{ACTIVE_CI_QUERY}^company.name={company_name}^location.name={location_name}^ORDERBYname'
 
         if internal is not None:
             if internal:
-                (
-                    query
-                    .AND().field('u_prtg_instrumentation').equals('true')
-                )
+                query += '^u_prtg_instrumentation=true'
             else:
-                (
-                    query
-                    .AND().field('u_prtg_instrumentation').equals('false')
-                    .OR().field('u_prtg_instrumentation').is_empty()
-                )
+                query += '^u_prtg_instrumentation=false^ORu_prtg_instrumentationISEMPTY'
 
         if missing:
-            query.AND().field('u_prtg_id').is_empty()
+            query += '^u_prtg_idISEMPTY'
 
-        response = cis.get(query=query)
-        return response.all()
+        return self._get('/table/cmdb_ci', query, display_value=True)
 
     def get_record(self, link):
         with requests.Session() as s:
@@ -191,24 +162,15 @@ class ApiClient:
         return f'{protocol}://{self.instance}.service-now.com/cmdb_ci?sys_id={sys_id}'
 
     def update_prtg_id(self, sys_id, value):
-        update = {'u_prtg_id': value}
-        ci_table = self.client.resource(api_path='/table/cmdb_ci')
-        response = ci_table.update(query={'sys_id': sys_id}, payload=update)
-        return response['u_prtg_id'] == value
+        updated = self._request('PUT', f'/table/cmdb_ci/{sys_id}', payload={'u_prtg_id': value})[0]
+        return updated['u_prtg_id'] == value
 
     def get_cis_count(self, company_name, location_name):
         """Get a count of all PRTG monitored configuration items from a company
         site."""
-        ci_aggregate = self.client.resource('/stats/cmdb_ci')
-        ci_aggregate.parameters.add_custom({'sysparm_count': True})
-        query = (
-            get_active_ci_query()
-            .AND().field('company.name').equals(company_name)
-            .AND().field('location.name').equals(location_name)
-            .AND().field('name').order_ascending()
-        )
-        response = ci_aggregate.get(query=query)
-        return int(response.one()['stats']['count'])
+        query = f'{ACTIVE_CI_QUERY}^company.name={company_name}^location.name={location_name}^ORDERBYname'
+        response = self._get('/stats/cmdb_ci', query, sysparm_count='true')[0]
+        return int(response['stats']['count'])
 
     def post_log(self, request_id, state, response_msg):
         protocol = 'https' if self.ssl else 'http'
