@@ -18,7 +18,6 @@ from prtg import ApiClient as PrtgClient
 from prtg.auth import BasicAuth, BasicPasshash, BasicToken
 from prtg.exception import ObjectNotFound
 from pydantic import SecretStr
-from pysnow.exceptions import MultipleResults, NoResults
 from requests.exceptions import HTTPError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -30,6 +29,7 @@ from alt_prtg.models import Device
 from snow import ApiClient as SnowClient
 from snow import SnowController
 from snow.adapter import get_prtg_tree_adapter
+from snow.exceptions import MultipleResults, NoResults
 from snow.models import Company, DeviceBody, Location, Log, State
 
 # load secrets from .env
@@ -447,7 +447,11 @@ def sync_device_task(device_body: DeviceBody):
         prtg_controller = PrtgController(client)
         logger.debug(f'PRTG URL: {device_body.prtg_url}')
         logger.debug(f'Device ID from payload: {device_body.device_id}.')
-        ci = snow_controller.get_config_item(device_body.device_id)
+        try:
+            ci = snow_controller.get_config_item(device_body.device_id)
+        except NoResults as e:
+            log_error_console_and_snow(device_body.request_id, str(e))
+            return
 
         if ci.company is None or ci.location is None:
             log_error_console_and_snow(device_body.request_id, f'Cannot sync device {ci.name}. Missing company or location information in SNOW.')
@@ -493,7 +497,7 @@ def delete_device_task(sys_id: str, prtg_url: str, prtg_api_key: str, request_id
 
         try:
             ci = snow_controller.get_config_item(sys_id)
-        except (ValueError, TypeError) as e:
+        except (NoResults, ValueError, TypeError) as e:
             log_error_console_and_snow(request_id, str(e))
             return
         if ci.prtg_id is None:
